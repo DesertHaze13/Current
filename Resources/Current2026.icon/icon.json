@@ -1,0 +1,20 @@
+{
+  "fill-specializations": [
+    {"value": {"linear-gradient": ["extended-srgb:0.03529,0.14510,0.18039,1.00000", "extended-srgb:0.00784,0.03922,0.07059,1.00000"]}},
+    {"appearance": "dark", "value": {"linear-gradient": ["extended-srgb:0.02353,0.09020,0.12549,1.00000", "extended-srgb:0.00392,0.02353,0.04706,1.00000"]}}
+  ],
+  "groups": [
+    {
+      "name": "Money in motion",
+      "lighting": "individual",
+      "specular": true,
+      "shadow": {"kind": "neutral", "opacity": 0.2},
+      "translucency": {"enabled": true, "value": 0.15},
+      "layers": [
+        {"image-name": "02-orbits.svg", "name": "Account orbits", "glass": false, "hidden": false, "opacity": 0.78, "position": {"scale": 1, "translation-in-points": [0, 0]}},
+        {"image-name": "03-current.svg", "name": "Current line", "glass": true, "hidden": false, "opacity": 1, "position": {"scale": 1, "translation-in-points": [0, 0]}}
+      ]
+    }
+  ],
+  "supported-platforms": {"circles": ["watchOS"], "squares": ["iOS", "macOS"]}
+}
