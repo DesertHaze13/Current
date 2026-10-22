@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 private let ink = Color(red: 0.035, green: 0.075, blue: 0.105)
 private let glow = Color(red: 0.55, green: 1, blue: 0.82)
@@ -16,6 +17,14 @@ struct RootView: View {
     @State private var editingCashAccount: CashAccount?
     @State private var selectedKind: EntryKind? = nil
     private var isDark: Bool { colorScheme == .dark }
+    private var navigationAccent: Color {
+        isDark ? Color(red: 0.73, green: 0.66, blue: 1) : Color(red: 0.39, green: 0.28, blue: 0.85)
+    }
+    private var addTabSymbol: UIImage {
+        // Original rendering preserves the brand color even while the native Add tab is idle.
+        let symbol = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(weight: .semibold)) ?? UIImage()
+        return symbol.withTintColor(UIColor(navigationAccent), renderingMode: .alwaysOriginal)
+    }
     private var canvas: Color { isDark ? ink : Color(red: 0.945, green: 0.975, blue: 0.975) }
     private var surface: Color { isDark ? .white.opacity(0.07) : .white.opacity(0.88) }
     private var line: Color { isDark ? .white.opacity(0.11) : ink.opacity(0.09) }
@@ -47,6 +56,7 @@ struct RootView: View {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button { showAdd = true } label: { Image(systemName: "plus") }
                                     .buttonBorderShape(.circle)
+                                    .tint(navigationAccent)
                                     .accessibilityLabel("Add a money moment")
                             }
                         }
@@ -99,11 +109,15 @@ struct RootView: View {
                 Tab("Profile", systemImage: CurrentPage.profile.symbol, value: NativeTab.page(.profile)) {
                     NavigationStack { content(for: .profile) }
                 }
-                Tab("Add", systemImage: "plus", value: NativeTab.create, role: .prominent) {
+                Tab(value: NativeTab.create, role: .prominent) {
                     AddView(onClose: { composerTabSelected = false }).environmentObject(ledger)
+                } label: {
+                    Label { Text("Add") } icon: {
+                        Image(uiImage: addTabSymbol).renderingMode(.original)
+                    }
                 }
             }
-            .tint(.indigo)
+            .tint(navigationAccent)
         } else {
             TabView(selection: $page) {
                 ForEach(CurrentPage.allCases) { destination in
@@ -112,6 +126,7 @@ struct RootView: View {
                             .toolbar {
                                 ToolbarItem(placement: .topBarTrailing) {
                                     Button { showAdd = true } label: { Image(systemName: "plus") }
+                                        .tint(navigationAccent)
                                         .accessibilityLabel("Add a money moment")
                                 }
                             }
@@ -119,7 +134,7 @@ struct RootView: View {
                     .tabItem { Label(destination.rawValue, systemImage: destination.symbol) }
                     .tag(destination)
                 }
-            }.tint(.indigo)
+            }.tint(navigationAccent)
         }
     }
 
