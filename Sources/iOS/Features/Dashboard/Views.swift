@@ -9,7 +9,6 @@ struct RootView: View {
     @EnvironmentObject var ledger: Ledger
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
-    @State private var composerTabSelected = false
     @State private var showAdd = false
     @State private var page: CurrentPage = .home
     @State private var showSettings = false
@@ -19,11 +18,6 @@ struct RootView: View {
     private var isDark: Bool { colorScheme == .dark }
     private var navigationAccent: Color {
         isDark ? Color(red: 0.73, green: 0.66, blue: 1) : Color(red: 0.39, green: 0.28, blue: 0.85)
-    }
-    private var addTabSymbol: UIImage {
-        // Original rendering preserves the brand color even while the native Add tab is idle.
-        let symbol = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(weight: .semibold)) ?? UIImage()
-        return symbol.withTintColor(UIColor(navigationAccent), renderingMode: .alwaysOriginal)
     }
     private var canvas: Color { isDark ? ink : Color(red: 0.945, green: 0.975, blue: 0.975) }
     private var surface: Color { isDark ? .white.opacity(0.07) : .white.opacity(0.88) }
@@ -63,7 +57,7 @@ struct RootView: View {
                     }
                 }
             } else {
-                nativeTabs
+                nativeTabs(availableWidth: geometry.size.width)
             }
         }
         .sheet(isPresented: $showAdd) { AddView().environmentObject(ledger) }
@@ -81,43 +75,31 @@ struct RootView: View {
             if scenePhase == .active && ledger.isSignedIn { Task { await ledger.refresh() } }
         }
     }
-    private enum NativeTab: Hashable {
-        case page(CurrentPage)
-        case create
-    }
-    private var tabSelection: Binding<NativeTab> {
-        Binding(get: { composerTabSelected ? .create : .page(page) }, set: { next in
-            switch next {
-            case .page(let destination): page = destination; composerTabSelected = false
-            case .create: composerTabSelected = true
-            }
-        })
-    }
-
-    @ViewBuilder private var nativeTabs: some View {
-        if #available(iOS 27.0, *) {
-            TabView(selection: tabSelection) {
-                Tab("Home", systemImage: CurrentPage.home.symbol, value: NativeTab.page(.home)) {
-                    NavigationStack { content(for: .home) }
-                }
-                Tab("Spending", systemImage: CurrentPage.spending.symbol, value: NativeTab.page(.spending)) {
-                    NavigationStack { content(for: .spending) }
-                }
-                Tab("Activity", systemImage: CurrentPage.activity.symbol, value: NativeTab.page(.activity)) {
-                    NavigationStack { content(for: .activity) }
-                }
-                Tab("Profile", systemImage: CurrentPage.profile.symbol, value: NativeTab.page(.profile)) {
-                    NavigationStack { content(for: .profile) }
-                }
-                Tab(value: NativeTab.create, role: .prominent) {
-                    AddView(onClose: { composerTabSelected = false }).environmentObject(ledger)
-                } label: {
-                    Label { Text("Add") } icon: {
-                        Image(uiImage: addTabSymbol).renderingMode(.original)
+    @ViewBuilder private func nativeTabs(availableWidth: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            NavigationStack { pageContent }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    HStack(spacing: 8) {
+                        CurrentNativePageBar(selection: $page, tint: navigationAccent)
+                            .frame(width: max(180, availableWidth - 96), height: 64)
+                        Button { showAdd = true } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 25, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.glass(.regular.tint(Color(red: 0.47, green: 0.34, blue: 0.91)).interactive()))
+                        .buttonBorderShape(.circle)
+                        .controlSize(.large)
+                        .tint(Color(red: isDark ? 0.49 : 0.39, green: isDark ? 0.36 : 0.28, blue: isDark ? 0.95 : 0.85))
+                        .frame(width: 64, height: 64)
+                        .accessibilityLabel("Add a money moment")
+                        .accessibilityHint("Opens a new transaction")
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
                 }
-            }
-            .tint(navigationAccent)
         } else {
             TabView(selection: $page) {
                 ForEach(CurrentPage.allCases) { destination in
@@ -148,6 +130,48 @@ struct RootView: View {
         }
     }
 
+}
+
+/// A public UIKit tab bar retains Apple's item rendering, hit testing and accessibility.
+/// Add is a separate prominent glass Button, so its whole surface can carry the brand tint.
+private struct CurrentNativePageBar: UIViewRepresentable {
+    @Binding var selection: CurrentPage
+    let tint: Color
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+    func makeUIView(context: Context) -> UITabBar {
+        let bar = CurrentInsetFreeTabBar()
+        bar.directionalLayoutMargins = .zero
+        bar.delegate = context.coordinator
+        bar.itemPositioning = .fill
+        bar.items = CurrentPage.allCases.enumerated().map { index, page in
+            UITabBarItem(title: page.rawValue, image: UIImage(systemName: page.symbol), tag: index)
+        }
+        return bar
+    }
+    func updateUIView(_ bar: UITabBar, context: Context) {
+        context.coordinator.selection = $selection
+        bar.tintColor = UIColor(tint)
+        if let index = CurrentPage.allCases.firstIndex(of: selection), let items = bar.items {
+            bar.selectedItem = items[index]
+        }
+    }
+    final class Coordinator: NSObject, UITabBarDelegate {
+        var selection: Binding<CurrentPage>
+        init(selection: Binding<CurrentPage>) { self.selection = selection }
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            guard CurrentPage.allCases.indices.contains(item.tag) else { return }
+            selection.wrappedValue = CurrentPage.allCases[item.tag]
+        }
+    }
+}
+
+/// SwiftUI already places the dock above the home-indicator safe area. Allowing
+/// UITabBar to inset itself again compresses icons and labels inside the capsule.
+private final class CurrentInsetFreeTabBar: UITabBar {
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: 64) }
+    override func sizeThatFits(_ size: CGSize) -> CGSize { CGSize(width: size.width, height: 64) }
 }
 
 struct EntryRow: View {
