@@ -16,3 +16,7 @@ cash-accounts.json
 balance.json
 *.log
 __pycache__/
+
+# Device-local notification context
+notification-context.json
+DeviceOnly/

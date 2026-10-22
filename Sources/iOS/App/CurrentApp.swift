@@ -17,6 +17,7 @@ import AppIntents
                     CurrentAppShortcuts.updateAppShortcutParameters()
                     while !Task.isCancelled {
                         await ledger.refresh()
+                        await ledger.processCategoryQueue()
                         do { try await Task.sleep(for: .seconds(30)) } catch { break }
                     }
                 }
@@ -74,14 +75,17 @@ struct RecordTransactionFromAlertIntent: AppIntent {
 
         let ledger = Ledger.shared
         ledger.errorMessage = nil
+        LocalNotificationContext.shared.store(notificationText, for: parsed.fingerprint)
         await ledger.add(Entry(source: parsed.source, title: parsed.title, amount: parsed.amount, kind: parsed.kind, date: parsed.date, fingerprint: parsed.fingerprint))
+        if ledger.errorMessage == nil { await ledger.classifyRecordedAlert(parsed.fingerprint) }
         if let message = ledger.errorMessage {
             return .result(dialog: "Current could not record this alert: \(message)")
         }
         if ledger.syncStatus != "Firebase synced" {
             return .result(dialog: "Saved on this device, but not synced yet. Open Current to check Firebase sign-in and connection.")
         }
-        return .result(dialog: "Recorded and synced \(parsed.kind.title.lowercased()) from \(parsed.source).")
+        let category = ledger.entries.first { $0.fingerprint == parsed.fingerprint }?.categoryStatusText ?? ""
+        return .result(dialog: "Recorded and synced \(parsed.kind.title.lowercased()) from \(parsed.source). \(category)")
     }
 }
 

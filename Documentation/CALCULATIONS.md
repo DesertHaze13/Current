@@ -7,10 +7,14 @@
 - **Cash flow:** income − purchases − bills paid. This is not a bank balance.
 - **Carryover:** the transaction trail from the earliest recorded confirmed income. Earlier funds and missing transactions are unknown.
 - **Needs review:** visible in Activity but excluded from confirmed money summaries and category charts.
-- **Own money:** sum of individually confirmed bank/wallet balance snapshots. Credit limits, paylater availability and reward points are excluded. Mixed snapshot dates are labelled explicitly.
+- **Own money:** separate confirmed snapshot and estimated totals. Estimates replay assigned, confirmed movements strictly after each account’s snapshot, using integer minor units. Income increases cash; purchases and debt settlement reduce it. Transfers require explicit source and destination accounts. Reconfirming a balance advances its cutoff, preventing double subtraction. Unknown funding stays visible for review. Credit limits, paylater availability and reward points are excluded. Mixed snapshot dates are labelled explicitly.
 
 New public builds contain no imported financial history. Account presets begin at zero with an unconfirmed timestamp; set actual balances yourself. No real bank balances or transactions are bundled in this repository.
 
 The health view uses simple recorded-cash-flow thresholds (20% retention and 30% bill share). Incomplete data, one-off repayments and pre-existing savings can materially change the interpretation. Labels are informational and are not a personalized financial recommendation.
 
 The app does not access bank APIs, third-party notification history or mailbox databases. Vision reads screenshots only when the user chooses/pastes an image. Review OCR output before saving. A Shortcut must actually supply alert text to the App Intent before it can be parsed.
+
+## Local category AI
+
+Apple Intelligence can classify purchase descriptions and original alert context on eligible devices. Bulk changes require reviewing proposals; per-record and batch Undo preserve previous categories, and later manual edits win. New captures are saved before enrichment, so model unavailability does not discard a transaction. Temporary card holds are excluded until a completed charge is received. Raw notification context lives only in a device-local sidecar excluded from backups; Firebase receives category/result metadata with the existing financial record. Context captured on one device is not copied to another device.

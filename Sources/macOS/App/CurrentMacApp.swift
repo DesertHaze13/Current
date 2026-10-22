@@ -13,6 +13,7 @@ import GoogleSignIn
                     guard scenePhase == .active else { return }
                     while !Task.isCancelled {
                         await ledger.refresh()
+                        await ledger.processCategoryQueue()
                         do { try await Task.sleep(for: .seconds(30)) } catch { break }
                     }
                 }

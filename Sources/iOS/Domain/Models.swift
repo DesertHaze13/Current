@@ -35,6 +35,11 @@ struct Entry: Identifiable, Codable, Hashable {
     var fingerprint: String
     var note: String = ""
     var category: SpendingCategory? = nil
+    var categoryRevision: CategoryRevision? = nil
+    var categoryAssessment: CategoryAssessment? = nil
+    // nil = infer only an unambiguous bank source; "" = explicitly not cash.
+    var cashAccountID: String? = nil
+    var destinationCashAccountID: String? = nil
     var requiresReview: Bool? = nil
     var isConfirmed: Bool { requiresReview != true }
 }
@@ -77,6 +82,60 @@ struct CashAccount: Identifiable, Codable, Hashable {
         let cents = fraction.isEmpty ? 0 : Int64(fraction.padding(toLength: 2, withPad: "0", startingAt: 0))
         guard let cents else { return nil }
         return whole * 100 + cents
+    }
+}
+
+/// A projection never mutates the bank-confirmed snapshot. Recomputing from
+/// immutable entries avoids subtracting imports twice or accumulating rounding.
+struct CashProjection {
+    let account: CashAccount
+    let movements: [(entry: Entry, deltaMinor: Int64)]
+    var deltaMinor: Int64 { movements.reduce(0) { $0 + $1.deltaMinor } }
+    var estimatedMinor: Int64 { account.balanceMinor + deltaMinor }
+
+    init(account: CashAccount, entries: [Entry]) {
+        self.account = account
+        movements = entries.compactMap { entry in
+            guard entry.isConfirmed, entry.amount > 0, entry.date > account.confirmedAt else { return nil }
+            let minor = Int64(entry.amount) * 100
+            if entry.kind == .transfer {
+                // Transfers need BOTH legs. The reporting app is not the bank.
+                guard let from = entry.cashAccountID, !from.isEmpty,
+                      let to = entry.destinationCashAccountID, !to.isEmpty, from != to else { return nil }
+                if from == account.id { return (entry, -minor) }
+                if to == account.id { return (entry, minor) }
+                return nil
+            }
+            guard entry.resolvedCashAccountID == account.id else { return nil }
+            return (entry, entry.kind == .income ? minor : -minor)
+        }.sorted { $0.entry.date < $1.entry.date }
+    }
+}
+
+extension Entry {
+    var resolvedCashAccountID: String? {
+        if let cashAccountID { return cashAccountID.isEmpty ? nil : cashAccountID }
+        // Card receipts reported by a merchant/wallet do not identify cash funding.
+        let text = (title + " " + note).lowercased()
+        if kind == .expense && ["credit card", "unbilled credit", "charged", "paylater", "amex", "visa", "mastercard"].contains(where: text.contains) { return nil }
+        switch source.lowercased() {
+        case "mybca", "bca": return "mybca"
+        case "brimo", "bri": return "brimo"
+        case "seabank": return "seabank"
+        case "wondr by bni", "wondr": return "wondr"
+        // Wallet/app names alone may report purchases funded by another card.
+        default: return nil
+        }
+    }
+    var needsCashAssignment: Bool {
+        guard isConfirmed else { return false }
+        if kind == .transfer {
+            return cashAccountID?.isEmpty != false || destinationCashAccountID?.isEmpty != false
+        }
+        if cashAccountID != nil { return false }
+        let text = (title + " " + note).lowercased()
+        if ["unbilled credit", "has been charged", "credit card"].contains(where: text.contains) { return false }
+        return resolvedCashAccountID == nil
     }
 }
 
@@ -138,7 +197,7 @@ enum AlertParser {
     /// recognizable completed movement. Summary and balance notices are ignored.
     static func parseNotification(_ raw: String, source: String? = nil, at date: Date = .now) -> ParsedAlert? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text.count <= 1_200 else { return nil }
+        guard !text.isEmpty, text.count <= 1_200, !isAuthorizationHold(text) else { return nil }
         let pattern = #"(?i)(?:Rp\s*|IDR\s*)[\d.,]+"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..., in: text)
@@ -190,7 +249,13 @@ enum AlertParser {
         return String(text[range]).uppercased()
     }
 
+    static func isAuthorizationHold(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return ["currently on hold", "amount is on hold", "only be charged the final", "pre-authorisation", "pre-authorization", "preauthorisation", "preauthorization"].contains(where: lower.contains)
+    }
+
     static func notificationSkipReason(_ text: String) -> String {
+        if isAuthorizationHold(text) { return "This is a temporary card hold, not a completed purchase. Wait for the final charge." }
         let count = (try? NSRegularExpression(pattern: #"(?i)(?:Rp\s*|IDR\s*)[\d.,]+"#))?
             .numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) ?? 0
         if count == 0 { return "No rupiah transaction amount was provided by Shortcuts." }

@@ -162,15 +162,17 @@ struct CurrentOverview: View {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Money you own", systemImage: "sparkle").font(.subheadline.bold())
-                    Text("Your last-confirmed cash.\nNo credit limits.").font(.caption).foregroundStyle(.white.opacity(0.78))
+                    Text("Estimated cash from bank confirmations.\nNo credit limits.").font(.caption).foregroundStyle(.white.opacity(0.78))
                 }
                 Spacer(minLength: 4)
                 Button { hidden.toggle() } label: { Image(systemName: hidden ? "eye.slash" : "eye").frame(width: 44, height: 44) }
                     .accessibilityLabel(hidden ? "Show balances" : "Hide balances")
                 CurrentSculpture(symbol: "wallet.bifold.fill").scaleEffect(0.72).frame(width: 90, height: 90)
             }
-            Text(hidden ? "••••••" : CashAccount.rupiah(ledger.confirmedCashMinor))
+            Text(hidden ? "••••••" : CashAccount.rupiah(ledger.projectedCashMinor))
                 .font(.system(size: 40, weight: .bold, design: .rounded)).tracking(-1.5).lineLimit(1).minimumScaleFactor(0.55).contentTransition(.numericText())
+            Text("Confirmed total " + (hidden ? "••••" : CashAccount.rupiah(ledger.confirmedCashMinor)))
+                .font(.caption).foregroundStyle(.white.opacity(0.78))
             Text(ledger.cashSnapshotSummary).font(.caption2.bold()).foregroundStyle(.white.opacity(0.78))
             Button { withAnimation(reduced ? nil : .spring(response: 0.45, dampingFraction: 0.8)) { walletsOpen.toggle() } } label: {
                 HStack {
@@ -191,22 +193,43 @@ struct CurrentOverview: View {
                 if walletsOpen {
                     VStack(alignment: .leading, spacing: 16) {
                         ForEach(ledger.cashAccounts) { account in
+                            let projection = CashProjection(account: account, entries: ledger.entries)
                             Button { editAccount(account) } label: {
                                 VStack(spacing: 7) {
                                     HStack {
                                         Text(account.name).font(.subheadline.bold()); Spacer()
-                                        Text(hidden ? "••••" : CashAccount.rupiah(account.balanceMinor)).font(.subheadline.bold()).monospacedDigit()
+                                        Text(hidden ? "••••" : CashAccount.rupiah(projection.estimatedMinor)).font(.subheadline.bold()).monospacedDigit()
                                         Image(systemName: "pencil.circle").foregroundStyle(.secondary)
                                     }
                                     GeometryReader { proxy in
                                         Capsule().fill(.indigo.opacity(0.09))
                                         Capsule().fill(.indigo.gradient).frame(width: proxy.size.width * CGFloat(max(0, min(1, Double(account.balanceMinor) / Double(max(1, ledger.confirmedCashMinor))))))
                                     }.frame(height: 5).accessibilityHidden(true)
+                                    Text("Confirmed " + (hidden ? "••••" : CashAccount.rupiah(account.balanceMinor)) + " · " + String(projection.movements.count) + " later movements")
+                                        .font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                                     Text(account.confirmedAt == .distantPast ? "Not set · tap to update" : account.confirmedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute())).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }.buttonStyle(CurrentPress())
+                            if !projection.movements.isEmpty {
+                                DisclosureGroup("Balance calculation · " + account.name) {
+                                    ForEach(projection.movements, id: \.entry.fingerprint) { movement in
+                                        HStack {
+                                            Text(movement.entry.title).lineLimit(2)
+                                            Spacer()
+                                            Text(hidden ? "••••" : CashAccount.rupiah(movement.deltaMinor)).monospacedDigit()
+                                        }.font(.caption).padding(.vertical, 3)
+                                    }
+                                }.font(.caption)
+                            }
                         }
-                        Text("These confirmations have different dates. Update an account after checking its bank app; recorded purchases do not replace a confirmed bank balance.")
+                        if !ledger.unassignedCashEntries.isEmpty {
+                            Text("\(ledger.unassignedCashEntries.count) recent movements need a funding account. Estimates may be incomplete.")
+                                .font(.caption.bold()).foregroundStyle(.orange)
+                            ForEach(ledger.unassignedCashEntries) { entry in
+                                CurrentMovementRow(entry: entry)
+                            }
+                        }
+                        Text("Estimates apply only assigned movements after each confirmation. Tap an account to confirm a newer bank balance; tap a transaction to assign its funding account. Unassigned movements and missing bank activity can leave a difference.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.modifier(CurrentSurface()).transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -298,6 +321,7 @@ struct CurrentMovementRow: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title).font(.system(.subheadline, design: .rounded, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading)
                     Text("\(entry.source) · \(entry.date.formatted(.dateTime.day().month(.abbreviated).hour().minute()))").font(.caption2).foregroundStyle(.secondary)
+                    if let status = entry.categoryStatusText { Text(status).font(.caption2).foregroundStyle(.secondary) }
                     if !entry.isConfirmed { Text("Needs review · outside totals").font(.caption2.bold()).foregroundStyle(.orange) }
                 }
                 Spacer(minLength: 2)

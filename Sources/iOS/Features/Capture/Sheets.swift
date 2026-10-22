@@ -7,6 +7,7 @@ import CryptoKit
 struct AddView: View {
     @EnvironmentObject var ledger: Ledger
     @Environment(\.dismiss) var dismiss
+    var onClose: (() -> Void)? = nil
     @State private var mode = 0
     @State private var source = "Auto detect"
     @State private var raw = ""
@@ -71,7 +72,7 @@ struct AddView: View {
                         Button { Task { await save() } } label: { Text("Add to my story").font(.headline).frame(maxWidth: .infinity).padding(17).background(.indigo.gradient, in: Capsule()).foregroundStyle(.white) }
                     }.padding(22)
                 }
-            }.navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }.tint(.mint)
+            }.navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { close() } } }.tint(.mint)
                 .onChange(of: raw) { _, _ in prepareReview() }
                 .onChange(of: source) { _, _ in prepareReview() }
                 .onChange(of: selectedScreenshot) { _, item in
@@ -132,6 +133,9 @@ struct AddView: View {
         reviewedKind = suggestion.kind
         reviewedDate = suggestion.date
     }
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
     private func save() async {
         ledger.errorMessage = nil
         if mode == 0 {
@@ -144,6 +148,7 @@ struct AddView: View {
             let day = Int(Calendar.current.startOfDay(for: reviewedDate).timeIntervalSince1970)
             let key = "\(suggestion.fingerprint)|\(value)|\(reviewedKind.rawValue)|\(day)|\(cleanTitle)"
             let fingerprint = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+            LocalNotificationContext.shared.store(raw, for: fingerprint)
             await ledger.add(Entry(source: suggestion.source, title: cleanTitle.isEmpty ? suggestion.title : cleanTitle,
                                    amount: value, kind: reviewedKind, date: reviewedDate, fingerprint: fingerprint,
                                    note: "Reviewed from pasted text or screenshot."))
@@ -152,7 +157,7 @@ struct AddView: View {
             let entry = Entry(source: source == "Auto detect" ? "Manual" : source, title: title.isEmpty ? kind.title : title, amount: value, kind: kind, date: .now, fingerprint: UUID().uuidString)
             await ledger.add(entry)
         } else { ledger.errorMessage = "Enter an amount greater than zero."; return }
-        if ledger.errorMessage == nil { dismiss() }
+        if ledger.errorMessage == nil { Task { await ledger.processCategoryQueue() }; close() }
     }
 }
 

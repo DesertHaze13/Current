@@ -14,8 +14,9 @@
 - **Spending:** interactive pie/donut chart, category selection, source filtering and editable categories.
 - **Activity:** search, movement filters and review status; wide layouts keep transaction details beside the list.
 - **Profile:** connect a Google identity to your Firebase account for your name, email and profile photo.
-- **Adaptive layouts:** a labelled dock on compact screens, sidebar navigation on iPad/Mac, and two or three useful columns when space allows.
+- **Adaptive layouts:** native tabs on compact screens, sidebar navigation on iPad/Mac, and two or three useful columns when space allows.
 - **Apple Watch:** read-only monthly totals, last-confirmed balances and recent records supplied by the paired iPhone.
+- **On-device AI categories:** Apple Intelligence categorizes supported purchases locally, with bulk review and Undo. Raw notification context stays on the capturing device and is excluded from Firebase and backups. Compatible hardware and an available Apple model are required; there is no cloud AI fallback.
 - System light/dark appearance and Reduce Motion support.
 
 ## Companion Shortcut
@@ -25,6 +26,8 @@ The repository includes the original signed **Record Transactions** Shortcut and
 **Current cannot read another app's notification history or run a notification-scanning cron job.** Capture only works when Shortcuts actually supplies transaction text to its App Intent. OS trigger support, device permissions and the message format determine what can be recorded. Review bank statements periodically; the Shortcut does not guarantee complete coverage.
 
 ## Build
+
+Source version **1.16 (26)** adds native tabs and a separate prominent Add tab on iOS 27, with a toolbar Add button on earlier supported systems.
 
 Use Xcode with the iOS 17+, watchOS 10+ and macOS 14+ SDKs supported by the project. Current development builds use Xcode 27 beta; Liquid Glass uses iOS/macOS 26 APIs when available and falls back to material surfaces on older supported systems. Xcode resolves the official Google Sign-In Swift package automatically.
 
@@ -47,7 +50,7 @@ The build script generates an empty local Firebase configuration from the exampl
 
 Purchases, income, transfers between your accounts and payments of existing debt are separate movement types. Transfers are not new spending. Monthly cash flow is income minus purchases minus bills paid. Unresolved records stay visible but are excluded from confirmed totals.
 
-Balances are **last-confirmed snapshots**, each with its own timestamp. Recording a transaction does not silently replace a bank balance. A sum of snapshots from different dates is not a verified live portfolio. Health labels describe recorded cash flow and are not a personalized financial assessment.
+Balances preserve **last-confirmed snapshots** and show estimates separately. Estimates apply assigned, confirmed movements strictly after each account’s snapshot. Transfers require both account legs; unknown funding remains visible for review. These estimates are not live bank balances. Health labels describe recorded cash flow and are not a personalized financial assessment.
 
 This public repository contains no imported personal ledger, private bank screenshots, Firebase production configuration or signing credentials. UI screenshots, if included, use fictional demo data. The source does not connect to bank APIs or import a mailbox directly.
 

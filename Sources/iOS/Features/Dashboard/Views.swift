@@ -8,6 +8,7 @@ struct RootView: View {
     @EnvironmentObject var ledger: Ledger
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @State private var composerTabSelected = false
     @State private var showAdd = false
     @State private var page: CurrentPage = .home
     @State private var showSettings = false
@@ -40,9 +41,19 @@ struct RootView: View {
                         }
                         Text(ledger.syncStatus).font(.caption).foregroundStyle(.secondary)
                     }.listStyle(.sidebar).navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
-                } detail: { pageContent }
+                } detail: {
+                    NavigationStack {
+                        pageContent.toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button { showAdd = true } label: { Image(systemName: "plus") }
+                                    .buttonBorderShape(.circle)
+                                    .accessibilityLabel("Add a money moment")
+                            }
+                        }
+                    }
+                }
             } else {
-                pageContent.safeAreaInset(edge: .bottom, spacing: 0) { dock }
+                nativeTabs
             }
         }
         .sheet(isPresented: $showAdd) { AddView().environmentObject(ledger) }
@@ -60,32 +71,66 @@ struct RootView: View {
             if scenePhase == .active && ledger.isSignedIn { Task { await ledger.refresh() } }
         }
     }
-    @ViewBuilder private var pageContent: some View {
-        switch page {
+    private enum NativeTab: Hashable {
+        case page(CurrentPage)
+        case create
+    }
+    private var tabSelection: Binding<NativeTab> {
+        Binding(get: { composerTabSelected ? .create : .page(page) }, set: { next in
+            switch next {
+            case .page(let destination): page = destination; composerTabSelected = false
+            case .create: composerTabSelected = true
+            }
+        })
+    }
+
+    @ViewBuilder private var nativeTabs: some View {
+        if #available(iOS 27.0, *) {
+            TabView(selection: tabSelection) {
+                Tab("Home", systemImage: CurrentPage.home.symbol, value: NativeTab.page(.home)) {
+                    NavigationStack { content(for: .home) }
+                }
+                Tab("Spending", systemImage: CurrentPage.spending.symbol, value: NativeTab.page(.spending)) {
+                    NavigationStack { content(for: .spending) }
+                }
+                Tab("Activity", systemImage: CurrentPage.activity.symbol, value: NativeTab.page(.activity)) {
+                    NavigationStack { content(for: .activity) }
+                }
+                Tab("Profile", systemImage: CurrentPage.profile.symbol, value: NativeTab.page(.profile)) {
+                    NavigationStack { content(for: .profile) }
+                }
+                Tab("Add", systemImage: "plus", value: NativeTab.create, role: .prominent) {
+                    AddView(onClose: { composerTabSelected = false }).environmentObject(ledger)
+                }
+            }
+            .tint(.indigo)
+        } else {
+            TabView(selection: $page) {
+                ForEach(CurrentPage.allCases) { destination in
+                    NavigationStack {
+                        content(for: destination)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button { showAdd = true } label: { Image(systemName: "plus") }
+                                        .accessibilityLabel("Add a money moment")
+                                }
+                            }
+                    }
+                    .tabItem { Label(destination.rawValue, systemImage: destination.symbol) }
+                    .tag(destination)
+                }
+            }.tint(.indigo)
+        }
+    }
+
+    private var pageContent: some View { content(for: page) }
+    @ViewBuilder private func content(for destination: CurrentPage) -> some View {
+        switch destination {
         case .home: CurrentOverview(editAccount: { editingCashAccount = $0 }, openActivity: { selectedKind = $0; page = .activity }, openSpending: { page = .spending }, add: { showAdd = true })
         case .spending: SpendingExplorerView()
         case .activity: CurrentActivity(kind: $selectedKind)
         case .profile: CurrentProfileView(openSettings: { showSettings = true })
         }
-    }
-    private var dock: some View {
-        HStack(spacing: 4) {
-            ForEach(CurrentPage.allCases) { destination in
-                Button { page = destination } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: destination.symbol).font(.system(size: 18, weight: .semibold))
-                            
-                        Text(destination.rawValue).font(.system(size: 10, weight: .bold, design: .rounded))
-                    }.frame(maxWidth: .infinity).frame(height: 54)
-                        .background(page == destination ? Color.indigo.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 22))
-                }.accessibilityAddTraits(page == destination ? .isSelected : [])
-            }
-            Button { showAdd = true } label: {
-                Image(systemName: "plus").font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
-                    .frame(width: 48, height: 48).background(.indigo.gradient, in: Circle())
-            }.accessibilityLabel("Add a money moment")
-        }.buttonStyle(CurrentPress()).foregroundStyle(.primary).padding(6).modifier(SpendingGlass())
-            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6).tint(.indigo)
     }
 
 }

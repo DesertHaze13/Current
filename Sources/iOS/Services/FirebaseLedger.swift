@@ -89,6 +89,7 @@ private struct AccountLookup: Decodable {
     private var pending = Set(UserDefaults.standard.stringArray(forKey: "firebasePending") ?? [])
     private var pendingDeletes = Set(UserDefaults.standard.stringArray(forKey: "firebasePendingDeletes") ?? [])
     private var syncInProgress = false
+    private var categoryEnrichmentInProgress = false
     private static var storageDirectory: URL {
         #if os(macOS)
         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Current", isDirectory: true)
@@ -125,7 +126,18 @@ private struct AccountLookup: Decodable {
         }
         migrateRecapLabels()
         importHistoricalRecapIfNeeded()
+        markTemporaryHoldsForReview()
     }
+    private func markTemporaryHoldsForReview() {
+        var changed = false
+        for index in entries.indices where entries[index].requiresReview == nil && AlertParser.isAuthorizationHold(entries[index].title) {
+            entries[index].requiresReview = true
+            entries[index].note = "Temporary card authorization; final purchase is not confirmed. Excluded from confirmed totals pending review."
+            pending.insert(entries[index].fingerprint); changed = true
+        }
+        if changed { savePending(); save() }
+    }
+
     private func migrateRecapLabels() {
         var changed = false
         for canonical in HistoricalRecap.entries {
@@ -193,6 +205,12 @@ private struct AccountLookup: Decodable {
         }
     }
     var trackedClosing: Int? { trackedOpening.map { $0 + monthlyInsight.net } }
+    var cashProjections: [CashProjection] { cashAccounts.map { CashProjection(account: $0, entries: entries) } }
+    var projectedCashMinor: Int64 { cashProjections.reduce(0) { $0 + $1.estimatedMinor } }
+    var unassignedCashEntries: [Entry] {
+        guard let oldest = oldestCashConfirmation else { return [] }
+        return entries.filter { $0.date > oldest && $0.needsCashAssignment }
+    }
     var confirmedCashMinor: Int64 { cashAccounts.reduce(0) { $0 + $1.balanceMinor } }
     var oldestCashConfirmation: Date? { cashAccounts.map(\.confirmedAt).min() }
     var latestCashConfirmation: Date? { cashAccounts.map(\.confirmedAt).max() }
@@ -205,10 +223,13 @@ private struct AccountLookup: Decodable {
             "Confirmed \(last) · not live" : "Mixed dates: \(first) – \(last) · not live"
     }
 
-    func edit(_ entry: Entry, title: String, source: String, amount: Int, kind: EntryKind, date: Date, note: String, requiresReview: Bool) async -> Bool {
+    func edit(_ entry: Entry, title: String, source: String, amount: Int, kind: EntryKind, date: Date, note: String, requiresReview: Bool, cashAccountID: String? = nil, destinationCashAccountID: String? = nil) async -> Bool {
         guard amount > 0, let index = entries.firstIndex(where: { $0.fingerprint == entry.fingerprint }) else {
             errorMessage = "This transaction is no longer available, or its amount is invalid."
             return false
+        }
+        if (entries[index].title != title || entries[index].note != note), entries[index].categoryAssessment?.state != .manual {
+            entries[index].categoryAssessment = CategoryAssessment(state: .pending, reason: "Description updated; queued for local AI.", at: .distantPast)
         }
         entries[index].title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         entries[index].source = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -217,6 +238,8 @@ private struct AccountLookup: Decodable {
         entries[index].date = date
         entries[index].note = note
         entries[index].requiresReview = requiresReview
+        entries[index].cashAccountID = cashAccountID
+        entries[index].destinationCashAccountID = destinationCashAccountID
         errorMessage = nil
         pending.insert(entry.fingerprint); savePending(); save()
         if isSignedIn { await refresh() }
@@ -402,8 +425,69 @@ private struct AccountLookup: Decodable {
         savePending(); save()
         if isSignedIn { await refresh() }
     }
+    func retryCategory(_ fingerprint: String) async {
+        guard let index = entries.firstIndex(where: { $0.fingerprint == fingerprint }) else { return }
+        entries[index].categoryAssessment = nil
+        pending.insert(fingerprint); savePending(); save()
+        await classifyRecordedAlert(fingerprint)
+    }
+
+    func classifyRecordedAlert(_ fingerprint: String) async {
+        await processCategoryQueue(only: fingerprint)
+    }
+
+    /// AI reads raw context only from a device-local sidecar. Firestore continues
+    /// to receive the existing financial record plus category/result metadata.
+    func processCategoryQueue(only fingerprint: String? = nil) async {
+        guard !categoryEnrichmentInProgress else { return }
+        let candidates = entries.filter { entry in
+            if let fingerprint {
+                return entry.fingerprint == fingerprint && entry.kind == .expense && entry.isConfirmed && entry.categoryAssessment == nil
+            }
+            return entry.needsAutomaticCategory || (entry.kind == .expense && entry.isConfirmed && entry.category == nil && entry.categoryAssessment == nil && LocalNotificationContext.shared.text(for: entry.fingerprint) != nil)
+        }.prefix(fingerprint == nil ? 8 : 1)
+        guard !candidates.isEmpty else { return }
+        let engine = CategoryAI()
+        if let reason = engine.unavailableReason {
+            for candidate in candidates where candidate.categoryAssessment == nil {
+                guard let index = entries.firstIndex(where: { $0.fingerprint == candidate.fingerprint }) else { continue }
+                entries[index].categoryAssessment = CategoryAssessment(state: .pending, reason: reason, at: .now)
+                pending.insert(candidate.fingerprint)
+            }
+            savePending(); save()
+            if isSignedIn { await refresh() }
+            return
+        }
+        categoryEnrichmentInProgress = true
+        defer { categoryEnrichmentInProgress = false }
+        var changed = false
+        for original in candidates {
+            do {
+                let proposal = try await CategoryAI.classify(original, history: entries)
+                guard let index = entries.firstIndex(where: { $0.fingerprint == original.fingerprint }), entries[index] == original else { continue }
+                if proposal.suggested != .other && (proposal.changesCategory || original.category == nil) {
+                    entries[index].categoryRevision = CategoryRevision(batchID: UUID(), appliedAt: .now, previousCategory: original.category, appliedCategory: proposal.suggested)
+                    entries[index].category = proposal.suggested
+                }
+                let uncertain = proposal.suggested == .other || proposal.reason.localizedCaseInsensitiveContains("kept")
+                entries[index].categoryAssessment = CategoryAssessment(state: uncertain ? .needsContext : .classified, reason: String(proposal.reason.prefix(240)), at: .now)
+                pending.insert(original.fingerprint); changed = true
+            } catch {
+                guard let index = entries.firstIndex(where: { $0.fingerprint == original.fingerprint }), entries[index] == original else { continue }
+                entries[index].categoryAssessment = CategoryAssessment(state: .pending, reason: "AI could not finish. Transaction saved; retry when Current is open.", at: .now)
+                pending.insert(original.fingerprint); changed = true
+                break
+            }
+        }
+        if changed {
+            savePending(); save()
+            if isSignedIn { await refresh() }
+        }
+    }
+
     func addAlert(_ text: String, source: String? = nil) async {
         guard let parsed = AlertParser.parse(text, source: source) else { errorMessage = "No rupiah amount found. Add it manually instead."; return }
+        LocalNotificationContext.shared.store(text, for: parsed.fingerprint)
         await add(Entry(source: parsed.source, title: parsed.title, amount: parsed.amount, kind: parsed.kind, date: parsed.date, fingerprint: parsed.fingerprint))
     }
     func update(_ entry: Entry, kind: EntryKind) async {
@@ -412,9 +496,25 @@ private struct AccountLookup: Decodable {
         pending.insert(entry.fingerprint); savePending(); save()
         if isSignedIn { await refresh() }
     }
+    var latestCategoryBatch: CategoryRevision? {
+        entries.compactMap(\.categoryRevision).max { $0.appliedAt < $1.appliedAt }
+    }
+    func applyCategoryProposals(_ proposals: [CategoryProposal]) async -> Int {
+        let changed = CategoryBatch.apply(proposals, to: &entries)
+        pending.formUnion(changed); savePending(); save()
+        if isSignedIn { await refresh() }
+        return changed.count
+    }
+    func undoCategoryBatch(_ id: UUID, fingerprint: String? = nil) async {
+        let changed = CategoryBatch.undo(id, in: &entries, fingerprint: fingerprint)
+        pending.formUnion(changed); savePending(); save()
+        if isSignedIn { await refresh() }
+    }
     func updateCategory(_ entry: Entry, category: SpendingCategory?) async {
         guard let index = entries.firstIndex(where: { $0.fingerprint == entry.fingerprint }) else { return }
         entries[index].category = category
+        entries[index].categoryRevision = nil
+        entries[index].categoryAssessment = CategoryAssessment(state: .manual, reason: "Category selected by you.", at: .now)
         pending.insert(entry.fingerprint); savePending(); save()
         if isSignedIn { await refresh() }
     }
@@ -443,10 +543,22 @@ private struct AccountLookup: Decodable {
                     if let payload = document.fields?["payload"]?.stringValue,
                        let accounts = try? JSONDecoder.iso.decode([CashAccount].self, from: Data(payload.utf8)) {
                         remoteCashAccountsFound = true
-                        if !cashAccountsPending {
-                            cashAccounts = accounts
-                            saveCashAccounts()
+                        // Different devices may confirm different banks. Never replace
+                        // a newer bank confirmation with an older portfolio document.
+                        var reconciled = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+                        var hasNewerLocal = false
+                        for local in cashAccounts {
+                            if let remote = reconciled[local.id], remote.confirmedAt >= local.confirmedAt { continue }
+                            reconciled[local.id] = local
+                            hasNewerLocal = true
                         }
+                        let order = cashAccounts.map(\.id) + accounts.map(\.id).filter { id in !cashAccounts.contains { $0.id == id } }
+                        cashAccounts = order.compactMap { reconciled[$0] }
+                        if hasNewerLocal {
+                            cashAccountsPending = true
+                            UserDefaults.standard.set(true, forKey: "firebaseCashAccountsPending")
+                        }
+                        saveCashAccounts()
                     }
                     continue
                 }
@@ -472,6 +584,7 @@ private struct AccountLookup: Decodable {
                 if pending.contains(entry.fingerprint) { merged[entry.fingerprint] = entry }
             }
             entries = Array(merged.values).sorted { $0.date > $1.date }
+                markTemporaryHoldsForReview()
             save(); savePending()
             for fingerprint in pendingDeletes { try await writeDocument(fingerprint: fingerprint, entry: nil, deleted: true); pendingDeletes.remove(fingerprint); savePending() }
             for fingerprint in pending {

@@ -65,6 +65,7 @@ struct SpendingExplorerView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         heading
+                        CategoryAIPanel()
                         CurrentMonthControl()
                         Picker("Source", selection: $sourceFilter) {
                             Text("All sources").tag(String?.none)
@@ -325,5 +326,117 @@ struct SpendingExplorerView: View {
     private func percent(_ amount: Int) -> String {
         (Double(amount) / Double(max(1, breakdown.total)) * 100)
             .formatted(.number.precision(.fractionLength(1)))
+    }
+}
+
+/// Shared inline workspace on iPhone, iPad and native Mac.
+struct CategoryAIPanel: View {
+    @EnvironmentObject private var ledger: Ledger
+    @StateObject private var ai = CategoryAI()
+    @State private var included = Set<String>()
+    @State private var applying = false
+    @State private var result: String?
+    private var changes: [CategoryProposal] { ai.proposals.filter(\.changesCategory) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: "sparkles").font(.title2).foregroundStyle(.indigo)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("A fresh perspective.").font(.headline)
+                    Text("Review categories across every month.").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            Text("On-device AI and merchant checks review transaction titles, sources and notes. Preview changes before applying; amounts and account balances stay the same.")
+                .font(.caption).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack { scanButton; undoButton }
+                VStack(alignment: .leading) { scanButton; undoButton }
+            }
+            if let reason = ai.unavailableReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+            if ai.scanning {
+                ProgressView(value: Double(ai.progress), total: Double(max(1, ai.total)))
+                HStack {
+                    Text("Reviewed \(ai.progress) of \(ai.total) purchases…").font(.caption).monospacedDigit()
+                    Spacer()
+                    Button("Cancel") { ai.cancel() }
+                }
+            }
+            if let message = ai.message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if let result { Text(result).font(.subheadline.bold()).foregroundStyle(.teal).accessibilityAddTraits(.updatesFrequently) }
+            if !ai.proposals.isEmpty {
+                Text("\(changes.count) suggested changes · \(ai.proposals.count - changes.count) kept as before")
+                    .font(.subheadline.bold())
+                DisclosureGroup("See categories kept as before") {
+                    ForEach(ai.proposals.filter { !$0.changesCategory }) { proposal in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(proposal.original.title).font(.caption.bold()).lineLimit(2)
+                            Text(proposal.suggested.title + " · " + proposal.reason).font(.caption).foregroundStyle(.secondary)
+                        }.padding(.vertical, 5)
+                    }
+                }
+                if !changes.isEmpty {
+                    DisclosureGroup("Review suggested changes") {
+                        ForEach(changes) { proposal in
+                            Toggle(isOn: Binding(get: { included.contains(proposal.id) }, set: { value in
+                                if value { included.insert(proposal.id) } else { included.remove(proposal.id) }
+                            })) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(proposal.original.title).font(.subheadline.bold()).lineLimit(2)
+                                    Text("\(proposal.original.spendingCategory.title) → \(proposal.suggested.title)")
+                                        .font(.caption).foregroundStyle(proposal.suggested.color)
+                                    Text(proposal.reason).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }.padding(.vertical, 7).disabled(applying)
+                        }
+                    }
+                    HStack {
+                        Button("Apply \(included.count) changes") {
+                            applying = true
+                            Task {
+                                let expected = included.count
+                                let count = await ledger.applyCategoryProposals(changes.filter { included.contains($0.id) })
+                                result = "Applied \(count) categories." + (count < expected ? " Some records changed since scanning; scan again to review them." : " Undo is available.")
+                                ai.proposals = []; included = []; applying = false
+                            }
+                        }.buttonStyle(.borderedProminent).disabled(included.isEmpty || applying)
+                        Button("Discard") { ai.proposals = []; included = []; result = "Kept your previous categories." }.disabled(applying)
+                    }
+                }
+            }
+            if let batch = ledger.latestCategoryBatch {
+                DisclosureGroup("Undo individual AI changes") {
+                    ForEach(ledger.entries.filter { $0.categoryRevision?.batchID == batch.batchID }) { entry in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(entry.title).lineLimit(1)
+                                Text(entry.spendingCategory.title).foregroundStyle(.secondary)
+                            }.font(.caption)
+                            Spacer()
+                            Button("Undo") { Task { await ledger.undoCategoryBatch(batch.batchID, fingerprint: entry.fingerprint) } }
+                                .disabled(applying || ai.scanning)
+                        }.padding(.vertical, 4)
+                    }
+                }.font(.caption)
+            }
+        }.padding(22).modifier(SpendingGlass())
+            .onChange(of: ai.proposals.map { $0.id + $0.suggested.rawValue }) { _, _ in included = Set(changes.map(\.id)) }
+            .onDisappear { ai.cancel() }
+    }
+    private var scanButton: some View {
+        Button {
+            result = nil
+            Task { await ledger.refresh(); ai.scan(ledger.entries) }
+        } label: { Label(ai.scanning ? "Scanning…" : "Sync with AI", systemImage: "sparkles") }
+            .buttonStyle(.borderedProminent).tint(.indigo)
+            .disabled(ai.scanning || applying || ai.unavailableReason != nil || ledger.entries.isEmpty)
+    }
+    @ViewBuilder private var undoButton: some View {
+        if let batch = ledger.latestCategoryBatch {
+            Button { Task { await ledger.undoCategoryBatch(batch.batchID); result = "Restored the previous categories." } }
+            label: { Label("Undo last AI update", systemImage: "arrow.uturn.backward") }
+                .buttonStyle(.bordered).disabled(ai.scanning || applying)
+        }
     }
 }
