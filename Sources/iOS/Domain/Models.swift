@@ -41,7 +41,8 @@ struct Entry: Identifiable, Codable, Hashable {
     var cashAccountID: String? = nil
     var destinationCashAccountID: String? = nil
     var requiresReview: Bool? = nil
-    var isConfirmed: Bool { requiresReview != true }
+    var isTemporaryAuthorization: Bool { AlertParser.isAuthorizationHold(title + "\n" + note) }
+    var isConfirmed: Bool { requiresReview != true && !isTemporaryAuthorization }
 }
 
 /// A last-confirmed cash balance. Credit limits, paylater and reward points never belong here.
@@ -250,8 +251,8 @@ enum AlertParser {
     }
 
     static func isAuthorizationHold(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        return ["currently on hold", "amount is on hold", "only be charged the final", "pre-authorisation", "pre-authorization", "preauthorisation", "preauthorization"].contains(where: lower.contains)
+        let lower = text.lowercased().replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return ["currently on hold", "is on hold", "only be charged the final", "pre-authorisation", "pre-authorization", "preauthorisation", "preauthorization", "temporary card authorization"].contains(where: lower.contains)
     }
 
     static func notificationSkipReason(_ text: String) -> String {
@@ -265,7 +266,7 @@ enum AlertParser {
 
     static func parse(_ raw: String, source chosen: String? = nil, at date: Date = .now) -> ParsedAlert? {
         let text = raw.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
+        guard !text.isEmpty, !isAuthorizationHold(text) else { return nil }
         let source = (chosen == "Auto detect" ? nil : chosen) ?? sources.first(where: { text.localizedCaseInsensitiveContains($0) }) ?? "Other"
         let pattern = #"(?i)(?:Rp\s*|IDR\s*)([\d.,]+)"#
         guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }

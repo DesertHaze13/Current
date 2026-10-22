@@ -322,10 +322,10 @@ struct CurrentMovementRow: View {
                     Text(title).font(.system(.subheadline, design: .rounded, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading)
                     Text("\(entry.source) · \(entry.date.formatted(.dateTime.day().month(.abbreviated).hour().minute()))").font(.caption2).foregroundStyle(.secondary)
                     if let status = entry.categoryStatusText { Text(status).font(.caption2).foregroundStyle(.secondary) }
-                    if !entry.isConfirmed { Text("Needs review · outside totals").font(.caption2.bold()).foregroundStyle(.orange) }
+                    if !entry.isConfirmed { Text(entry.isTemporaryAuthorization ? "Temporary authorization · not deducted · outside totals" : "Needs review · outside totals").font(.caption2.bold()).foregroundStyle(.orange) }
                 }
                 Spacer(minLength: 2)
-                Text((entry.kind == .income ? "+" : entry.kind == .expense ? "−" : entry.kind == .transfer ? "↔ " : "✓ ") + entry.amount.rupiah)
+                Text((entry.isTemporaryAuthorization ? "Hold " : entry.kind == .income ? "+" : entry.kind == .expense ? "−" : entry.kind == .transfer ? "↔ " : "✓ ") + entry.amount.rupiah)
                     .font(.system(.subheadline, design: .rounded, weight: .bold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
             }.padding(15).background(color.opacity(0.045), in: RoundedRectangle(cornerRadius: 23)).contentShape(RoundedRectangle(cornerRadius: 23))
         }.buttonStyle(CurrentPress()).foregroundStyle(.primary).accessibilityHint("Open transaction details and edit")

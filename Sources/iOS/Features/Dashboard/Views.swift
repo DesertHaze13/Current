@@ -146,14 +146,14 @@ struct EntryRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.source).font(.system(size: 14, weight: .bold))
                 Text(entry.title).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                if !entry.isConfirmed { Text("Needs review · excluded from totals").font(.caption).foregroundStyle(.orange) }
+                if !entry.isConfirmed { Text(entry.isTemporaryAuthorization ? "Temporary authorization · not deducted · excluded from totals" : "Needs review · excluded from totals").font(.caption).foregroundStyle(.orange) }
                 if !entry.note.isEmpty {
                     Text(entry.note).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Text(entry.date.formatted(.dateTime.day().month(.abbreviated).hour().minute())).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 3)
-            Text((entry.kind == .expense ? "−" : entry.kind == .income ? "+" : entry.kind == .settlement ? "✓" : "↔") + entry.amount.rupiah)
+            Text((entry.isTemporaryAuthorization ? "Hold " : entry.kind == .expense ? "−" : entry.kind == .income ? "+" : entry.kind == .settlement ? "✓" : "↔") + entry.amount.rupiah)
                 .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(entry.kind.tint).lineLimit(1).minimumScaleFactor(0.7)
         }.padding(13).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
             .sheet(isPresented: $editing) { TransactionEditorView(entry: entry).environmentObject(ledger) }

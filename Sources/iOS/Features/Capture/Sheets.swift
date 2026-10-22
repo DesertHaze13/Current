@@ -139,6 +139,9 @@ struct AddView: View {
     private func save() async {
         ledger.errorMessage = nil
         if mode == 0 {
+            guard !AlertParser.isAuthorizationHold(raw) else {
+                ledger.errorMessage = AlertParser.notificationSkipReason(raw); return
+            }
             guard let suggestion = AlertParser.parse(raw, source: source),
                   let value = Int(reviewedAmount.filter(\.isNumber)), value > 0 else {
                 ledger.errorMessage = "Choose a transaction and enter its amount before saving."

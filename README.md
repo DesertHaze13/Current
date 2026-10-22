@@ -27,7 +27,7 @@ The repository includes the original signed **Record Transactions** Shortcut and
 
 ## Build
 
-Source version **1.16 (26)** adds native tabs and a separate prominent Add tab on iOS 27, with a toolbar Add button on earlier supported systems.
+Source version **1.17 (27)** adds native tabs and a separate prominent Add tab on iOS 27, with a toolbar Add button on earlier supported systems.
 
 Use Xcode with the iOS 17+, watchOS 10+ and macOS 14+ SDKs supported by the project. Current development builds use Xcode 27 beta; Liquid Glass uses iOS/macOS 26 APIs when available and falls back to material surfaces on older supported systems. Xcode resolves the official Google Sign-In Swift package automatically.
 

@@ -18,3 +18,5 @@ The app does not access bank APIs, third-party notification history or mailbox d
 ## Local category AI
 
 Apple Intelligence can classify purchase descriptions and original alert context on eligible devices. Bulk changes require reviewing proposals; per-record and batch Undo preserve previous categories, and later manual edits win. New captures are saved before enrichment, so model unavailability does not discard a transaction. Temporary card holds are excluded until a completed charge is received. Raw notification context lives only in a device-local sidecar excluded from backups; Firebase receives category/result metadata with the existing financial record. Context captured on one device is not copied to another device.
+
+Temporary authorizations are not completed purchases. Both alert capture and pasted/OCR input reject hold notices. Older hold records remain visible with a Hold label, but are excluded from confirmed totals even if an older client marked them reviewed. A separate completed-charge notification can be recorded; equal amounts alone do not establish that two messages describe the same booking.

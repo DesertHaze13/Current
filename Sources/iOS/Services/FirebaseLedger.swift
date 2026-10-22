@@ -130,9 +130,15 @@ private struct AccountLookup: Decodable {
     }
     private func markTemporaryHoldsForReview() {
         var changed = false
-        for index in entries.indices where entries[index].requiresReview == nil && AlertParser.isAuthorizationHold(entries[index].title) {
+        for index in entries.indices {
+            let entry = entries[index]
+            let context = LocalNotificationContext.shared.text(for: entry.fingerprint) ?? ""
+            guard entry.requiresReview != true, entry.isTemporaryAuthorization || AlertParser.isAuthorizationHold(context) else { continue }
             entries[index].requiresReview = true
-            entries[index].note = "Temporary card authorization; final purchase is not confirmed. Excluded from confirmed totals pending review."
+            let explanation = "Temporary card authorization; final purchase is not confirmed. Excluded from confirmed totals pending review."
+            if !entries[index].note.contains(explanation) {
+                entries[index].note += (entries[index].note.isEmpty ? "" : "\n") + explanation
+            }
             pending.insert(entries[index].fingerprint); changed = true
         }
         if changed { savePending(); save() }

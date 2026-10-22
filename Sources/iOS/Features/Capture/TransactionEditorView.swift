@@ -76,6 +76,9 @@ struct TransactionEditorView: View {
                     DisclosureGroup("Original notification · only on this device") { Text(context).font(.caption).textSelection(.enabled) }
                 }
                 Toggle("Needs review — exclude from totals", isOn: $requiresReview)
+                if entry.isTemporaryAuthorization {
+                    Text("This is a temporary authorization, not a completed charge. It stays outside spending and cash estimates. Wait for a separate final charge notification.").font(.caption).foregroundStyle(.orange)
+                }
                 Text("Changing a source or movement corrects this record. It does not create another transaction or replace a confirmed bank balance.")
                     .font(.caption).foregroundStyle(.secondary)
             }

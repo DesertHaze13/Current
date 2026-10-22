@@ -26,6 +26,24 @@ import Foundation
         precondition(!record.needsAutomaticCategory)
         precondition(AlertParser.parseNotification("Grab: Rp12345.00 is currently on hold. You'll only be charged the final amount after payment.") == nil)
         precondition(AlertParser.isAuthorizationHold("Amount is currently on hold"))
+        // Both automatic capture and pasted/OCR text must reject authorization holds.
+        for text in ["Rp12345.00 is currently on hold You'll only be charged the final amount …",
+                     "Grab: Rp12.345 is currently\non hold.", "Amount Rp12.345 is on hold"] {
+            precondition(AlertParser.parseNotification(text) == nil)
+            precondition(AlertParser.parse(text) == nil)
+        }
+        var hold = Entry(source: "myBCA", title: "Rp12345.00 is currently on hold", amount: 12_345, kind: .expense, date: .now, fingerprint: "hold-fixture")
+        hold.requiresReview = false // Legacy confirmation cannot turn a hold into a completed charge.
+        precondition(hold.isTemporaryAuthorization && !hold.isConfirmed)
+        precondition(MonthlyInsight(entries: [hold]).purchases == 0)
+        precondition(SpendingBreakdown(entries: [hold]).total == 0)
+        let bank = CashAccount(id: "mybca", name: "BCA", balanceMinor: 10_000_000, confirmedAt: .distantPast)
+        precondition(CashProjection(account: bank, entries: [hold]).deltaMinor == 0)
+        hold.title = "Payment notice"
+        hold.note = "Temporary card authorization; final purchase is not confirmed."
+        precondition(!hold.isConfirmed)
+        let completed = "Your Visa 0000 has been charged Rp12.345 for booking A-FINALDEMO01."
+        precondition(AlertParser.parseNotification(completed)?.kind == .expense)
         print("PASS: full-context evidence, status persistence, manual-choice protection, retry throttling, no raw context in synced Entry, merchant memory and movement exclusions.")
     }
 }
