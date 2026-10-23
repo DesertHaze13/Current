@@ -10,6 +10,8 @@
 
 ## The experience
 
+The shared canvas matches the published preview palette: warm paper (`#F9F8F4`), a distinct upper-right lavender field (`#F6EEF2`) and lower-left mint field (`#EDF4EF`), with coordinated dark-mode colors.
+
 - **Home:** expandable bank/wallet balances, a tactile wallet illustration, and a monthly Flow / Health / Carryover story.
 - **Spending:** interactive pie/donut chart, category selection, source filtering and editable categories.
 - **Activity:** search, movement filters and review status; wide layouts keep transaction details beside the list.
@@ -27,7 +29,7 @@ The repository includes the original signed **Record Transactions** Shortcut and
 
 ## Build
 
-Source version **1.24 (34)** uses an explicitly sized compact dock with Apple’s `glassEffect` material on iOS 26+. The four-page capsule and purple-tinted Add button are both 64 points tall. Menu layout, animated selection and slide-to-select are app-owned; the glass material is supplied by the system. Earlier supported versions retain a standard TabView with a toolbar Add button. On iPadOS 18+, navigation uses Apple’s native `TabView` with `.sidebarAdaptable`, allowing the system sidebar to transform into the top tab bar. Each destination retains its own NavigationStack, with Add, settings and icon actions in the toolbar. The iPad dashboard keeps a stable two-column widget hierarchy using AnyLayout during sidebar resizing, avoiding a three-to-two-column rebuild. Firebase quota errors pause retries with account-scoped backoff and remain visible in sync status without repeated modal interruptions. Local pending changes stay saved; this does not restore exhausted cloud quota.
+Source version **1.25 (35)** uses an explicitly sized compact dock with Apple’s `glassEffect` material on iOS 26+. The four-page capsule and purple-tinted Add button are both 64 points tall. Menu layout, animated selection and slide-to-select are app-owned; the glass material is supplied by the system. Earlier supported versions retain a standard TabView with a toolbar Add button. On iPadOS 18+, navigation uses Apple’s native `TabView` with `.sidebarAdaptable`, allowing the system sidebar to transform into the top tab bar. Each destination retains its own NavigationStack, with Add, settings and icon actions in the toolbar. The iPad dashboard keeps a stable two-column widget hierarchy using AnyLayout during sidebar resizing, avoiding a three-to-two-column rebuild. Firebase quota errors pause retries with account-scoped backoff and remain visible in sync status without repeated modal interruptions. Local pending changes stay saved; this does not restore exhausted cloud quota.
 
 Use Xcode with the iOS 17+, watchOS 10+ and macOS 14+ SDKs supported by the project. Current development builds use Xcode 27 beta; Liquid Glass uses iOS/macOS 26 APIs when available and falls back to material surfaces on older supported systems. Xcode resolves the official Google Sign-In Swift package automatically.
 

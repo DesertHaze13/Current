@@ -9,16 +9,38 @@ enum CurrentPage: String, CaseIterable, Identifiable {
     var symbol: String { switch self { case .home: "square.stack.3d.up.fill"; case .spending: "chart.pie.fill"; case .activity: "clock.arrow.circlepath"; case .profile: "person.crop.circle.fill" } }
 }
 
+/// Match the published visual reference: warm paper with distinct pastel fields.
+/// Decorations remain behind the content and do not participate in hit testing.
 struct CurrentCanvas: View {
     @Environment(\.colorScheme) private var scheme
+    private var paper: Color {
+        scheme == .dark ? Color(red: 0.055, green: 0.065, blue: 0.105) : Color(red: 249.0 / 255, green: 248.0 / 255, blue: 244.0 / 255)
+    }
+    private var lavender: Color {
+        scheme == .dark ? Color(red: 0.14, green: 0.11, blue: 0.20) : Color(red: 246.0 / 255, green: 238.0 / 255, blue: 242.0 / 255)
+    }
+    private var mint: Color {
+        scheme == .dark ? Color(red: 0.075, green: 0.15, blue: 0.14) : Color(red: 237.0 / 255, green: 244.0 / 255, blue: 239.0 / 255)
+    }
     var body: some View {
-        ZStack {
-            (scheme == .dark ? Color(red: 0.055, green: 0.065, blue: 0.115) : Color(red: 0.97, green: 0.965, blue: 0.945))
-            GeometryReader { proxy in
-                Ellipse().fill(.purple.opacity(scheme == .dark ? 0.14 : 0.075)).frame(width: 440, height: 380).blur(radius: 70).position(x: proxy.size.width * 0.9, y: 140)
-                Ellipse().fill(.mint.opacity(0.09)).frame(width: 350, height: 400).blur(radius: 80).position(x: 0, y: 650)
+        GeometryReader { geometry in
+            let upperDiameter = min(600, max(300, geometry.size.width * 0.36))
+            let lowerDiameter = min(520, max(280, geometry.size.width * 0.32))
+            ZStack {
+                paper
+                Circle().fill(lavender)
+                    .frame(width: upperDiameter, height: upperDiameter)
+                    .position(x: geometry.size.width - upperDiameter * 0.20, y: upperDiameter * 0.16)
+                Circle().fill(mint)
+                    .frame(width: lowerDiameter, height: lowerDiameter)
+                    .position(x: -lowerDiameter * 0.10, y: geometry.size.height * 0.62)
             }
-        }.ignoresSafeArea().allowsHitTesting(false)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
