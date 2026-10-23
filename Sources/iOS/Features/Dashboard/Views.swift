@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import UIKit
 
 private let ink = Color(red: 0.035, green: 0.075, blue: 0.105)
 private let glow = Color(red: 0.55, green: 1, blue: 0.82)
@@ -79,20 +78,18 @@ struct RootView: View {
         if #available(iOS 26.0, *) {
             NavigationStack { pageContent }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    HStack(spacing: 8) {
-                        CurrentNativePageBar(selection: $page, tint: navigationAccent)
-                            .frame(width: max(180, availableWidth - 96), height: 64)
+                    HStack(spacing: 12) {
+                        CurrentGlassPageBar(selection: $page, tint: navigationAccent)
+                            .frame(width: max(180, availableWidth - 100), height: 64)
                         Button { showAdd = true } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 25, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 32, height: 32)
+                                .foregroundStyle(isDark ? Color.white : Color(red: 0.25, green: 0.13, blue: 0.58))
+                                .frame(width: 64, height: 64)
+                                .contentShape(Circle())
                         }
-                        .buttonStyle(.glass(.regular.tint(Color(red: 0.47, green: 0.34, blue: 0.91)).interactive()))
-                        .buttonBorderShape(.circle)
-                        .controlSize(.large)
-                        .tint(Color(red: isDark ? 0.49 : 0.39, green: isDark ? 0.36 : 0.28, blue: isDark ? 0.95 : 0.85))
-                        .frame(width: 64, height: 64)
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular.tint(Color(red: 0.57, green: 0.43, blue: 0.95).opacity(0.60)).interactive(), in: .circle)
                         .accessibilityLabel("Add a money moment")
                         .accessibilityHint("Opens a new transaction")
                     }
@@ -132,46 +129,69 @@ struct RootView: View {
 
 }
 
-/// A public UIKit tab bar retains Apple's item rendering, hit testing and accessibility.
-/// Add is a separate prominent glass Button, so its whole surface can carry the brand tint.
-private struct CurrentNativePageBar: UIViewRepresentable {
+/// The system tab bar owns its own floating margins and cannot be embedded in
+/// a smaller dock without changing its proportions. This layout owns dimensions
+/// and selection, while Apple supplies the Liquid Glass material and interaction.
+@available(iOS 26.0, *)
+private struct CurrentGlassPageBar: View {
     @Binding var selection: CurrentPage
     let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    private let inset: CGFloat = 4
 
-    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
-    func makeUIView(context: Context) -> UITabBar {
-        let bar = CurrentInsetFreeTabBar()
-        bar.directionalLayoutMargins = .zero
-        bar.delegate = context.coordinator
-        bar.itemPositioning = .fill
-        bar.items = CurrentPage.allCases.enumerated().map { index, page in
-            UITabBarItem(title: page.rawValue, image: UIImage(systemName: page.symbol), tag: index)
+    var body: some View {
+        GeometryReader { geometry in
+            let itemWidth = max(1, (geometry.size.width - inset * 2) / CGFloat(CurrentPage.allCases.count))
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(scheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.075))
+                    .frame(width: itemWidth, height: 56)
+                    .offset(x: inset + CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0) * itemWidth)
+                    .animation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.82), value: selection)
+                    .allowsHitTesting(false)
+                HStack(spacing: 0) {
+                    ForEach(CurrentPage.allCases) { destination in
+                        Button { select(destination) } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: destination.symbol)
+                                    .font(.system(size: 24, weight: .medium))
+                                    .frame(height: 27)
+                                Text(destination.rawValue)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1).minimumScaleFactor(0.85)
+                            }
+                            .foregroundStyle(selection == destination ? tint : Color.primary)
+                            .frame(width: itemWidth, height: 56)
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(destination.rawValue)
+                        .accessibilityAddTraits(selection == destination ? .isSelected : [])
+                    }
+                }.padding(.horizontal, inset)
+            }
+            .frame(width: geometry.size.width, height: 64)
+            .contentShape(Capsule())
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { value in
+                        // Keep the hold-and-slide selection inside this capsule.
+                        guard value.location.y >= -12, value.location.y <= 76 else { return }
+                        let index = min(CurrentPage.allCases.count - 1, max(0, Int((value.location.x - inset) / itemWidth)))
+                        select(CurrentPage.allCases[index])
+                    }
+            )
+            .sensoryFeedback(.selection, trigger: selection)
         }
-        return bar
+        .frame(height: 64)
+        .accessibilityElement(children: .contain)
     }
-    func updateUIView(_ bar: UITabBar, context: Context) {
-        context.coordinator.selection = $selection
-        bar.tintColor = UIColor(tint)
-        if let index = CurrentPage.allCases.firstIndex(of: selection), let items = bar.items {
-            bar.selectedItem = items[index]
-        }
+    private func select(_ destination: CurrentPage) {
+        guard selection != destination else { return }
+        selection = destination
     }
-    final class Coordinator: NSObject, UITabBarDelegate {
-        var selection: Binding<CurrentPage>
-        init(selection: Binding<CurrentPage>) { self.selection = selection }
-        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-            guard CurrentPage.allCases.indices.contains(item.tag) else { return }
-            selection.wrappedValue = CurrentPage.allCases[item.tag]
-        }
-    }
-}
-
-/// SwiftUI already places the dock above the home-indicator safe area. Allowing
-/// UITabBar to inset itself again compresses icons and labels inside the capsule.
-private final class CurrentInsetFreeTabBar: UITabBar {
-    override var safeAreaInsets: UIEdgeInsets { .zero }
-    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: 64) }
-    override func sizeThatFits(_ size: CGSize) -> CGSize { CGSize(width: size.width, height: 64) }
 }
 
 struct EntryRow: View {

@@ -27,7 +27,7 @@ The repository includes the original signed **Record Transactions** Shortcut and
 
 ## Build
 
-Source version **1.20 (30)** uses a UIKit tab bar with a separate interactive, purple-tinted Apple glass Add button on compact iOS 26+ layouts. The dock reserves space above the home indicator and avoids applying the bottom safe-area inset twice. Earlier supported versions retain a standard TabView with a toolbar Add button.
+Source version **1.21 (31)** uses an explicitly sized compact dock with Apple’s `glassEffect` material on iOS 26+. The four-page capsule and purple-tinted Add button are both 64 points tall. Menu layout, animated selection and slide-to-select are app-owned; the glass material is supplied by the system. Earlier supported versions retain a standard TabView with a toolbar Add button.
 
 Use Xcode with the iOS 17+, watchOS 10+ and macOS 14+ SDKs supported by the project. Current development builds use Xcode 27 beta; Liquid Glass uses iOS/macOS 26 APIs when available and falls back to material surfaces on older supported systems. Xcode resolves the official Google Sign-In Swift package automatically.
 
