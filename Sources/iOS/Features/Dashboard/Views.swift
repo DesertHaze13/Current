@@ -102,8 +102,10 @@ struct RootView: View {
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
         }
         .tabViewSidebarFooter {
-            Text(ledger.syncStatus).font(.caption).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ledger.syncStatus).font(.caption).foregroundStyle(.secondary)
+                if let issue = ledger.syncIssue { Text(issue).font(.caption2).foregroundStyle(.secondary) }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
         }
         .tint(navigationAccent)
     }

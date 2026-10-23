@@ -38,10 +38,11 @@ struct BalanceSnapshot: Codable {
 }
 
 enum FirebaseError: LocalizedError {
-    case missingConfiguration, notSignedIn, accountMismatch, server(String)
+    case missingConfiguration, notSignedIn, accountMismatch, quotaExceeded, server(String)
     var errorDescription: String? {
         switch self {
         case .missingConfiguration: return "Firebase configuration is missing. Add GoogleService-Info.plist to the app target."
+        case .quotaExceeded: return "Firebase quota reached. Changes are saved on this device; cloud sync will retry later."
         case .notSignedIn: return "Sign in to sync across your devices."
         case .accountMismatch: return "This device has local data linked to another Firebase account."
         case .server(let message): return "Firebase: \(message.replacingOccurrences(of: "_", with: " ").lowercased())"
@@ -75,6 +76,13 @@ private struct AccountLookup: Decodable {
     static let shared = Ledger()
     @Published var entries: [Entry] = []
     @Published var syncStatus = "On this device"
+    @Published private(set) var syncIssue: String?
+    private var quotaFailures = 0
+    private var quotaRetryKey: String { "firebaseQuotaRetry-" + firebaseProjectID + "-" + (Keychain.read("firebaseUID") ?? "anonymous") }
+    private var quotaRetryAfter: Date {
+        get { UserDefaults.standard.object(forKey: quotaRetryKey) as? Date ?? .distantPast }
+        set { UserDefaults.standard.set(newValue, forKey: quotaRetryKey) }
+    }
     @Published var selectedMonth = Date()
     @Published var errorMessage: String?
     @Published private(set) var googleProfile: GoogleProfile?
@@ -534,6 +542,11 @@ private struct AccountLookup: Decodable {
     func refresh() async {
         guard hasFirebaseConfig else { syncStatus = "Firebase setup needed"; return }
         guard isSignedIn else { syncStatus = "On this device"; return }
+        guard Date() >= quotaRetryAfter else {
+            syncStatus = "Cloud quota reached · saved locally"
+            syncIssue = "Cloud sync will retry after " + quotaRetryAfter.formatted(date: .omitted, time: .shortened) + ". Pending changes remain on this device."
+            return
+        }
         guard !syncInProgress else { return }
         syncInProgress = true
         defer { syncInProgress = false }
@@ -609,6 +622,14 @@ private struct AccountLookup: Decodable {
                 UserDefaults.standard.set(false, forKey: "firebaseCashAccountsPending")
             }
             syncStatus = pending.isEmpty && pendingDeletes.isEmpty && !cashAccountsPending ? "Firebase synced" : "Sync paused"
+            quotaFailures = 0
+            quotaRetryAfter = .distantPast
+            syncIssue = nil
+        } catch FirebaseError.quotaExceeded {
+            quotaFailures += 1
+            quotaRetryAfter = Date().addingTimeInterval(CloudRetryPolicy.quotaDelay(attempt: quotaFailures))
+            syncStatus = "Cloud quota reached · saved locally"
+            syncIssue = "Cloud sync will retry after " + quotaRetryAfter.formatted(date: .omitted, time: .shortened) + ". Pending changes remain on this device."
         } catch { syncStatus = "Sync paused"; errorMessage = error.localizedDescription }
     }
     private func fetchDocuments() async throws -> [FirestoreDocument] {
@@ -698,6 +719,9 @@ private struct AccountLookup: Decodable {
             let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let detail = body?["error"] as? [String: Any]
             let message = detail?["message"] as? String ?? "HTTP \(http.statusCode)"
+            if CloudRetryPolicy.isQuota(statusCode: http.statusCode, status: detail?["status"] as? String, message: message) {
+                throw FirebaseError.quotaExceeded
+            }
             throw FirebaseError.server(message)
         }
     }

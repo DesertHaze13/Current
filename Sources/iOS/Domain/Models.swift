@@ -320,3 +320,13 @@ enum AccountIdentityPolicy {
         return incomingEmail.caseInsensitiveCompare(currentEmail) == .orderedSame
     }
 }
+
+/// A quota response must stop automatic polling, not interrupt navigation.
+enum CloudRetryPolicy {
+    static func isQuota(statusCode: Int, status: String?, message: String) -> Bool {
+        statusCode == 429 || status == "RESOURCE_EXHAUSTED" || message.localizedCaseInsensitiveContains("quota exceeded")
+    }
+    static func quotaDelay(attempt: Int) -> TimeInterval {
+        900 * pow(2, Double(min(2, max(0, attempt - 1))))
+    }
+}
