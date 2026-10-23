@@ -330,3 +330,25 @@ enum CloudRetryPolicy {
         900 * pow(2, Double(min(2, max(0, attempt - 1))))
     }
 }
+
+/// Separate recovery storage keeps deleted records out of every spending/balance calculation.
+struct DeletedEntry: Codable, Identifiable, Equatable {
+    var entry: Entry
+    var deletedAt: Date
+    var id: String { entry.fingerprint }
+    var expiresAt: Date { deletedAt.addingTimeInterval(30 * 24 * 3600) }
+    func isExpired(at now: Date = .now) -> Bool { now >= expiresAt }
+}
+
+struct NotificationCapture: Codable, Identifiable, Equatable {
+    let id: String
+    let text: String
+    let source: String?
+    let receivedAt: Date
+    var recordedFingerprint: String?
+    var message: String?
+    static func identity(text: String, source: String?, at date: Date) -> String {
+        let day = Calendar(identifier: .gregorian).startOfDay(for: date).timeIntervalSince1970
+        return SHA256.hash(data: Data("\(source ?? "auto")|\(day)|\(text.trimmingCharacters(in: .whitespacesAndNewlines))".utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}

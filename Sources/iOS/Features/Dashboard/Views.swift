@@ -69,13 +69,10 @@ struct RootView: View {
         .alert("Current", isPresented: Binding(get: { ledger.errorMessage != nil }, set: { if !$0 { ledger.errorMessage = nil } })) {
             Button("OK") { ledger.errorMessage = nil }
         } message: { Text(ledger.errorMessage ?? "") }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await ledger.refresh() } } }
         .onAppear { WatchSummaryBridge.shared.publish(entries: ledger.entries, cashAccounts: ledger.cashAccounts) }
         .onReceive(ledger.$entries) { WatchSummaryBridge.shared.publish(entries: $0, cashAccounts: ledger.cashAccounts) }
         .onReceive(ledger.$cashAccounts) { WatchSummaryBridge.shared.publish(entries: ledger.entries, cashAccounts: $0) }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
-            if scenePhase == .active && ledger.isSignedIn { Task { await ledger.refresh() } }
-        }
+
     }
     @available(iOS 18.0, *)
     private var iPadTabs: some View {

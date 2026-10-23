@@ -162,3 +162,47 @@ import FoundationModels
         #endif
     }
 }
+
+/// Journal first, parse second. Raw notification text never enters Firestore.
+@MainActor final class CaptureInbox: ObservableObject {
+    static let shared = CaptureInbox()
+    @Published private(set) var items: [NotificationCapture] = []
+    private let url: URL
+    init(url: URL? = nil) {
+        let directory = url?.deletingLastPathComponent() ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Current/DeviceOnly", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var excluded = directory
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        try? excluded.setResourceValues(values)
+        self.url = url ?? directory.appendingPathComponent("capture-inbox.json")
+        if let data = try? Data(contentsOf: self.url) { items = (try? JSONDecoder().decode([NotificationCapture].self, from: data)) ?? [] }
+    }
+    func receive(_ text: String, source: String?, at date: Date = .now) throws -> NotificationCapture {
+        let id = NotificationCapture.identity(text: text, source: source, at: date)
+        if let existing = items.first(where: { $0.id == id }) { return existing }
+        let item = NotificationCapture(id: id, text: text, source: source, receivedAt: date)
+        var updated = items
+        // Resolved journal items age out after 30 days. Unresolved captures are retained.
+        updated.removeAll { $0.recordedFingerprint != nil && date.timeIntervalSince($0.receivedAt) > 30 * 86400 }
+        updated.insert(item, at: 0)
+        try persist(updated)
+        items = updated
+        return item
+    }
+    func finish(_ item: NotificationCapture, fingerprint: String?, message: String) throws {
+        var updated = items
+        guard let index = updated.firstIndex(where: { $0.id == item.id }) else { return }
+        updated[index].recordedFingerprint = fingerprint
+        updated[index].message = message
+        try persist(updated)
+        items = updated
+    }
+    private func persist(_ items: [NotificationCapture]) throws {
+        try JSONEncoder().encode(items).write(to: url, options: .atomic)
+        #if os(iOS)
+        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
+        #else
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        #endif
+    }
+}

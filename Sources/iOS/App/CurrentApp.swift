@@ -16,9 +16,9 @@ import AppIntents
                     guard scenePhase == .active else { return }
                     CurrentAppShortcuts.updateAppShortcutParameters()
                     while !Task.isCancelled {
-                        await ledger.refresh()
+                        await ledger.refresh(force: false)
                         await ledger.processCategoryQueue()
-                        do { try await Task.sleep(for: .seconds(30)) } catch { break }
+                        do { try await Task.sleep(for: .seconds(60)) } catch { break }
                     }
                 }
         }
@@ -62,28 +62,38 @@ enum TrackedFinancialApp: String, AppEnum {
 /// ambiguous or non-transaction notices are rejected instead of guessed.
 struct RecordTransactionFromAlertIntent: AppIntent {
     static var title: LocalizedStringResource = "Record transaction from alert"
-    static var description = IntentDescription("Classify and sync one clear bank transaction alert to Current. Ambiguous alerts are skipped.")
+    static var description = IntentDescription("Classify and sync one clear bank transaction alert to Current. Unclear alerts are kept in the device’s Recovery Inbox for review.")
 
     @Parameter(title: "Notification text") var notificationText: String
     @Parameter(title: "App", default: .autoDetect) var source: TrackedFinancialApp
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let parsed = AlertParser.parseNotification(notificationText, source: source.sourceName) else {
-            return .result(dialog: "Not recorded: \(AlertParser.notificationSkipReason(notificationText))")
+        let inbox = CaptureInbox.shared
+        let capture = try inbox.receive(notificationText, source: source.sourceName)
+        if capture.recordedFingerprint != nil { return .result(dialog: "This alert is already recorded. Check Activity or Recently Deleted.") }
+        guard let parsed = AlertParser.parseNotification(capture.text, source: capture.source, at: capture.receivedAt) else {
+            let reason = AlertParser.notificationSkipReason(capture.text)
+            try inbox.finish(capture, fingerprint: nil, message: reason)
+            return .result(dialog: "Saved in Current’s Recovery Inbox for review: \(reason)")
         }
-
         let ledger = Ledger.shared
         ledger.errorMessage = nil
-        LocalNotificationContext.shared.store(notificationText, for: parsed.fingerprint)
-        await ledger.add(Entry(source: parsed.source, title: parsed.title, amount: parsed.amount, kind: parsed.kind, date: parsed.date, fingerprint: parsed.fingerprint))
-        if ledger.errorMessage == nil { await ledger.classifyRecordedAlert(parsed.fingerprint) }
-        if let message = ledger.errorMessage {
-            return .result(dialog: "Current could not record this alert: \(message)")
+        LocalNotificationContext.shared.store(capture.text, for: parsed.fingerprint)
+        if !ledger.entries.contains(where: { $0.fingerprint == parsed.fingerprint }) && !ledger.recentlyDeleted.contains(where: { $0.id == parsed.fingerprint }) {
+            await ledger.add(Entry(source: parsed.source, title: parsed.title, amount: parsed.amount, kind: parsed.kind, date: parsed.date, fingerprint: parsed.fingerprint))
         }
+        guard ledger.isDurablyRecorded(parsed.fingerprint) else {
+            try inbox.finish(capture, fingerprint: nil, message: "Not saved. Open Recovery Inbox to retry.")
+            return .result(dialog: "Alert kept in Current’s Recovery Inbox. Open Current to review it.")
+        }
+        try inbox.finish(capture, fingerprint: parsed.fingerprint, message: "Saved locally. Cloud sync retries independently.")
+        // Persist the journal result before optional AI enrichment can be interrupted.
+        await ledger.classifyRecordedAlert(parsed.fingerprint)
         if ledger.syncStatus != "Firebase synced" {
-            return .result(dialog: "Saved on this device, but not synced yet. Open Current to check Firebase sign-in and connection.")
+            return .result(dialog: "Saved on this device. Cloud sync is pending and will retry when Current is open.")
         }
+
         let category = ledger.entries.first { $0.fingerprint == parsed.fingerprint }?.categoryStatusText ?? ""
         return .result(dialog: "Recorded and synced \(parsed.kind.title.lowercased()) from \(parsed.source). \(category)")
     }

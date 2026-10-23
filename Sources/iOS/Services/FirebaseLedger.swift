@@ -31,6 +31,11 @@ private struct FirestoreDocument: Decodable {
 private struct FirestoreValue: Decodable {
     let stringValue: String?
     let booleanValue: Bool?
+    let timestampValue: String?
+}
+private struct QueryReply: Decodable {
+    let document: FirestoreDocument?
+    let readTime: String?
 }
 struct BalanceSnapshot: Codable {
     let amount: Int
@@ -75,6 +80,22 @@ private struct AccountLookup: Decodable {
     /// The app UI and in-process App Intents must observe and mutate the same ledger.
     static let shared = Ledger()
     @Published var entries: [Entry] = []
+    @Published private(set) var recentlyDeleted: [DeletedEntry] = []
+    @Published private(set) var syncRequests = 0
+    @Published private(set) var syncDocuments = 0
+    @Published private(set) var syncWrites = 0
+    private var lastPull = Date.distantPast
+    private var retryAfter = Date.distantPast
+    private var uploadRequested = false
+    private var checkpointKey: String { "cloudCheckpoint-v2-" + firebaseProjectID + "-" + (Keychain.read("firebaseUID") ?? "anonymous") }
+    private var cloudCheckpoint: String? {
+        get { UserDefaults.standard.string(forKey: checkpointKey) }
+        set { UserDefaults.standard.set(newValue, forKey: checkpointKey) }
+    }
+    private var pendingRestores = Set(UserDefaults.standard.stringArray(forKey: "cloudPendingRestores") ?? [])
+    private var tombstones = Set(UserDefaults.standard.stringArray(forKey: "cloudTombstones") ?? [])
+    private var trashURL: URL { Ledger.storageDirectory.appendingPathComponent("recently-deleted.json") }
+
     @Published var syncStatus = "On this device"
     @Published private(set) var syncIssue: String?
     private var quotaFailures = 0
@@ -125,6 +146,12 @@ private struct AccountLookup: Decodable {
            let profile = try? JSONDecoder().decode(GoogleProfile.self, from: data),
            profile.firebaseUID == Keychain.read("firebaseUID") { googleProfile = profile }
         if let data = try? Data(contentsOf: localURL), let saved = try? JSONDecoder().decode([Entry].self, from: data) { entries = saved }
+        if let data = try? Data(contentsOf: trashURL), let saved = try? JSONDecoder().decode([DeletedEntry].self, from: data) {
+            recentlyDeleted = saved
+            let ids = Set(saved.map(\.id))
+            entries.removeAll { ids.contains($0.fingerprint) }
+        }
+        expireDeleted()
         if let data = try? Data(contentsOf: balanceURL), let saved = try? JSONDecoder().decode(BalanceSnapshot.self, from: data) { balanceSnapshot = saved }
         if let data = try? Data(contentsOf: cashAccountsURL), let saved = try? JSONDecoder().decode([CashAccount].self, from: data) {
             cashAccounts = saved
@@ -177,7 +204,7 @@ private struct AccountLookup: Decodable {
                  Calendar.current.isDate(existing.date, inSameDayAs: candidate.date) &&
                  (existing.source == candidate.source || existing.source == "Manual"))
             }
-            if !duplicate {
+            if !duplicate && !tombstones.contains(candidate.fingerprint) && !recentlyDeleted.contains(where: { $0.id == candidate.fingerprint }) {
                 entries.append(candidate)
             }
         }
@@ -256,7 +283,7 @@ private struct AccountLookup: Decodable {
         entries[index].destinationCashAccountID = destinationCashAccountID
         errorMessage = nil
         pending.insert(entry.fingerprint); savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
         return true
     }
 
@@ -267,7 +294,7 @@ private struct AccountLookup: Decodable {
         saveCashAccounts()
         cashAccountsPending = true
         UserDefaults.standard.set(true, forKey: "firebaseCashAccountsPending")
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
     var estimatedBalance: Int? {
         guard let snapshot = balanceSnapshot else { return nil }
@@ -285,7 +312,7 @@ private struct AccountLookup: Decodable {
         saveBalance()
         balancePending = true
         UserDefaults.standard.set(true, forKey: "firebaseBalancePending")
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
 
     func signIn(email: String, password: String, create: Bool) async {
@@ -437,7 +464,7 @@ private struct AccountLookup: Decodable {
             pending.insert(entries[match].fingerprint)
         }
         savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
     func retryCategory(_ fingerprint: String) async {
         guard let index = entries.firstIndex(where: { $0.fingerprint == fingerprint }) else { return }
@@ -469,7 +496,7 @@ private struct AccountLookup: Decodable {
                 pending.insert(candidate.fingerprint)
             }
             savePending(); save()
-            if isSignedIn { await refresh() }
+            if isSignedIn { await refresh(pull: false) }
             return
         }
         categoryEnrichmentInProgress = true
@@ -495,7 +522,7 @@ private struct AccountLookup: Decodable {
         }
         if changed {
             savePending(); save()
-            if isSignedIn { await refresh() }
+            if isSignedIn { await refresh(pull: false) }
         }
     }
 
@@ -508,7 +535,7 @@ private struct AccountLookup: Decodable {
         guard let index = entries.firstIndex(where: { $0.fingerprint == entry.fingerprint }) else { return }
         entries[index].kind = kind
         pending.insert(entry.fingerprint); savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
     var latestCategoryBatch: CategoryRevision? {
         entries.compactMap(\.categoryRevision).max { $0.appliedAt < $1.appliedAt }
@@ -516,13 +543,13 @@ private struct AccountLookup: Decodable {
     func applyCategoryProposals(_ proposals: [CategoryProposal]) async -> Int {
         let changed = CategoryBatch.apply(proposals, to: &entries)
         pending.formUnion(changed); savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
         return changed.count
     }
     func undoCategoryBatch(_ id: UUID, fingerprint: String? = nil) async {
         let changed = CategoryBatch.undo(id, in: &entries, fingerprint: fingerprint)
         pending.formUnion(changed); savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
     func updateCategory(_ entry: Entry, category: SpendingCategory?) async {
         guard let index = entries.firstIndex(where: { $0.fingerprint == entry.fingerprint }) else { return }
@@ -530,16 +557,51 @@ private struct AccountLookup: Decodable {
         entries[index].categoryRevision = nil
         entries[index].categoryAssessment = CategoryAssessment(state: .manual, reason: "Category selected by you.", at: .now)
         pending.insert(entry.fingerprint); savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
     func remove(_ entry: Entry) async {
+        guard entries.contains(where: { $0.fingerprint == entry.fingerprint }) else { return }
+        recentlyDeleted.removeAll { $0.id == entry.fingerprint }
+        recentlyDeleted.append(DeletedEntry(entry: entry, deletedAt: .now))
+        guard saveTrash() else { return } // Recovery must be durable before removing the active record.
         entries.removeAll { $0.fingerprint == entry.fingerprint }
         pending.remove(entry.fingerprint)
+        pendingRestores.remove(entry.fingerprint)
+        tombstones.insert(entry.fingerprint)
         pendingDeletes.insert(entry.fingerprint)
         savePending(); save()
-        if isSignedIn { await refresh() }
+        if isSignedIn { await refresh(pull: false) }
     }
-    func refresh() async {
+    func restore(_ item: DeletedEntry) async {
+        guard !item.isExpired(), recentlyDeleted.contains(where: { $0.id == item.id }) else { return }
+        entries.removeAll { $0.fingerprint == item.id }
+        entries.append(item.entry)
+        pendingDeletes.remove(item.id); tombstones.remove(item.id); pending.insert(item.id); pendingRestores.insert(item.id)
+        recentlyDeleted.removeAll { $0.id == item.id }
+        savePending(); save(); saveTrash()
+        if isSignedIn { await refresh(pull: false) }
+    }
+    private func expireDeleted() {
+        let expired = recentlyDeleted.filter { $0.isExpired() }
+        guard !expired.isEmpty else { return }
+        pendingDeletes.formUnion(expired.map(\.id))
+        tombstones.formUnion(expired.map(\.id))
+        recentlyDeleted.removeAll { $0.isExpired() }
+        saveTrash(); savePending()
+    }
+    @discardableResult private func saveTrash() -> Bool {
+        do { try JSONEncoder().encode(recentlyDeleted).write(to: trashURL, options: .atomic); return true }
+        catch { errorMessage = "Could not save recovery data: " + error.localizedDescription; return false }
+    }
+    func isDurablyRecorded(_ fingerprint: String) -> Bool {
+        guard let data = try? Data(contentsOf: localURL), let records = try? JSONDecoder().decode([Entry].self, from: data) else { return false }
+        return records.contains { $0.fingerprint == fingerprint } || recentlyDeleted.contains { $0.id == fingerprint }
+    }
+
+    /// Automatic pulls are shared by all scenes and limited to once per five minutes.
+    /// A local edit uploads only its dirty documents. Explicit Sync bypasses the pull throttle.
+    func refresh(force: Bool = true, pull: Bool = true) async {
+        expireDeleted()
         guard hasFirebaseConfig else { syncStatus = "Firebase setup needed"; return }
         guard isSignedIn else { syncStatus = "On this device"; return }
         guard Date() >= quotaRetryAfter else {
@@ -547,17 +609,29 @@ private struct AccountLookup: Decodable {
             syncIssue = "Cloud sync will retry after " + quotaRetryAfter.formatted(date: .omitted, time: .shortened) + ". Pending changes remain on this device."
             return
         }
-        guard !syncInProgress else { return }
+        guard Date() >= retryAfter else { return }
+        guard !syncInProgress else { uploadRequested = true; return }
+        let shouldPull = pull && (force || Date().timeIntervalSince(lastPull) >= 300)
+        guard shouldPull || !pending.isEmpty || !pendingDeletes.isEmpty || balancePending || cashAccountsPending else { return }
         syncInProgress = true
-        defer { syncInProgress = false }
+        defer {
+            syncInProgress = false
+            if uploadRequested {
+                uploadRequested = false
+                Task { await self.refresh(force: false, pull: false) }
+            }
+        }
         syncStatus = "Syncing…"
         do {
-            let remote = try await fetchDocuments()
-            var remoteEntries: [String: Entry] = [:]
-            var deleted = pendingDeletes
-            var remoteCashAccountsFound = false
-            for document in remote {
-                let fingerprint = document.name.components(separatedBy: "/").last ?? ""
+            if shouldPull {
+                let baseline = cloudCheckpoint == nil
+                let (remote, nextCheckpoint) = try await fetchDocuments()
+                var merged = Dictionary(uniqueKeysWithValues: entries.map { ($0.fingerprint, $0) })
+                var remoteIDs = Set<String>()
+                var remoteCashAccountsFound = false
+                for document in remote {
+                    let fingerprint = document.name.components(separatedBy: "/").last ?? ""
+                    remoteIDs.insert(fingerprint)
                 if fingerprint == "__cash_accounts" {
                     if let payload = document.fields?["payload"]?.stringValue,
                        let accounts = try? JSONDecoder.iso.decode([CashAccount].self, from: Data(payload.utf8)) {
@@ -589,99 +663,128 @@ private struct AccountLookup: Decodable {
                     }
                     continue
                 }
-                if document.fields?["deleted"]?.booleanValue == true { deleted.insert(fingerprint); continue }
-                if let payload = document.fields?["payload"]?.stringValue,
-                   let entry = try? JSONDecoder.iso.decode(Entry.self, from: Data(payload.utf8)) { remoteEntries[fingerprint] = entry }
-            }
-            if !remoteCashAccountsFound {
-                cashAccountsPending = true
-                UserDefaults.standard.set(true, forKey: "firebaseCashAccountsPending")
-            }
-            var merged = remoteEntries
-            for entry in entries where !deleted.contains(entry.fingerprint) {
-                if remoteEntries[entry.fingerprint] == nil { pending.insert(entry.fingerprint) }
-                if pending.contains(entry.fingerprint) { merged[entry.fingerprint] = entry }
-            }
-            entries = Array(merged.values).sorted { $0.date > $1.date }
+                    // A local restore/delete in flight takes precedence until uploaded.
+                    if pendingDeletes.contains(fingerprint) || pendingRestores.contains(fingerprint) { continue }
+                    if document.fields?["deleted"]?.booleanValue == true {
+                        pending.remove(fingerprint) // A stale offline edit cannot resurrect a deleted record.
+                        tombstones.insert(fingerprint)
+                        merged.removeValue(forKey: fingerprint)
+                        recentlyDeleted.removeAll { $0.id == fingerprint }
+                        if let payload = document.fields?["payload"]?.stringValue,
+                           let item = try? JSONDecoder.iso.decode(DeletedEntry.self, from: Data(payload.utf8)) {
+                            if item.isExpired() { pendingDeletes.insert(fingerprint) }
+                            else { recentlyDeleted.append(item) }
+                        }
+                    } else if let payload = document.fields?["payload"]?.stringValue,
+                              let entry = try? JSONDecoder.iso.decode(Entry.self, from: Data(payload.utf8)) {
+                        if !pending.contains(fingerprint) { merged[fingerprint] = entry }
+                        tombstones.remove(fingerprint)
+                        recentlyDeleted.removeAll { $0.id == fingerprint }
+                    }
+                }
+                if baseline {
+                    for entry in entries where !remoteIDs.contains(entry.fingerprint) && !tombstones.contains(entry.fingerprint) { pending.insert(entry.fingerprint) }
+                    if !remoteCashAccountsFound { cashAccountsPending = true; UserDefaults.standard.set(true, forKey: "firebaseCashAccountsPending") }
+                }
+                entries = Array(merged.values).sorted { $0.date > $1.date }
+
                 markTemporaryHoldsForReview()
-            save(); savePending()
-            for fingerprint in pendingDeletes { try await writeDocument(fingerprint: fingerprint, entry: nil, deleted: true); pendingDeletes.remove(fingerprint); savePending() }
-            for fingerprint in pending {
-                guard let entry = entries.first(where: { $0.fingerprint == fingerprint }), !deleted.contains(fingerprint) else { pending.remove(fingerprint); continue }
-                try await writeDocument(fingerprint: fingerprint, entry: entry, deleted: false)
-                pending.remove(fingerprint); savePending()
+                try JSONEncoder().encode(entries).write(to: localURL, options: .atomic)
+                try JSONEncoder().encode(recentlyDeleted).write(to: trashURL, options: .atomic)
+                savePending()
+                // Persist the checkpoint only AFTER the merged data is durable.
+                cloudCheckpoint = nextCheckpoint
+                lastPull = .now
             }
-            if balancePending, let balanceSnapshot {
-                try await writeBalanceSnapshot(balanceSnapshot)
-                balancePending = false
-                UserDefaults.standard.set(false, forKey: "firebaseBalancePending")
+            for fingerprint in Array(pendingDeletes) {
+                let item = recentlyDeleted.first { $0.id == fingerprint }
+                let payload = try item.map { String(decoding: try JSONEncoder.iso.encode($0), as: UTF8.self) } ?? ""
+                try await writePayload(fingerprint: fingerprint, payload: payload, deleted: true)
+                if !pending.contains(fingerprint) && recentlyDeleted.first(where: { $0.id == fingerprint }) == item { pendingDeletes.remove(fingerprint) }
+                savePending()
+            }
+            for fingerprint in Array(pending) {
+                guard let entry = entries.first(where: { $0.fingerprint == fingerprint }) else { pending.remove(fingerprint); continue }
+                try await writePayload(fingerprint: fingerprint, payload: String(decoding: JSONEncoder.iso.encode(entry), as: UTF8.self), deleted: false)
+                // An edit made while awaiting the network must remain dirty.
+                if entries.first(where: { $0.fingerprint == fingerprint }) == entry { pending.remove(fingerprint); pendingRestores.remove(fingerprint) }
+                savePending()
+            }
+            if balancePending, let snapshot = balanceSnapshot {
+                try await writePayload(fingerprint: "__balance_snapshot", payload: String(decoding: JSONEncoder.iso.encode(snapshot), as: UTF8.self), deleted: false)
+                if balanceSnapshot?.date == snapshot.date && balanceSnapshot?.amount == snapshot.amount { balancePending = false; UserDefaults.standard.set(false, forKey: "firebaseBalancePending") }
             }
             if cashAccountsPending {
-                try await writeCashAccounts()
-                cashAccountsPending = false
-                UserDefaults.standard.set(false, forKey: "firebaseCashAccountsPending")
+                let accounts = cashAccounts
+                try await writePayload(fingerprint: "__cash_accounts", payload: String(decoding: JSONEncoder.iso.encode(accounts), as: UTF8.self), deleted: false)
+                if try JSONEncoder.iso.encode(accounts) == JSONEncoder.iso.encode(cashAccounts) { cashAccountsPending = false; UserDefaults.standard.set(false, forKey: "firebaseCashAccountsPending") }
             }
-            syncStatus = pending.isEmpty && pendingDeletes.isEmpty && !cashAccountsPending ? "Firebase synced" : "Sync paused"
-            quotaFailures = 0
-            quotaRetryAfter = .distantPast
-            syncIssue = nil
+            syncStatus = pending.isEmpty && pendingDeletes.isEmpty && !cashAccountsPending && !balancePending ? "Firebase synced" : "Saved locally · sync pending"
+            quotaFailures = 0; quotaRetryAfter = .distantPast; syncIssue = nil
         } catch FirebaseError.quotaExceeded {
             quotaFailures += 1
             quotaRetryAfter = Date().addingTimeInterval(CloudRetryPolicy.quotaDelay(attempt: quotaFailures))
             syncStatus = "Cloud quota reached · saved locally"
             syncIssue = "Cloud sync will retry after " + quotaRetryAfter.formatted(date: .omitted, time: .shortened) + ". Pending changes remain on this device."
-        } catch { syncStatus = "Sync paused"; errorMessage = error.localizedDescription }
+        } catch {
+            retryAfter = Date().addingTimeInterval(60)
+            syncStatus = "Saved locally · sync pending"
+            syncIssue = error.localizedDescription
+        }
     }
-    private func fetchDocuments() async throws -> [FirestoreDocument] {
+
+    private func fetchDocuments() async throws -> ([FirestoreDocument], String) {
         var all: [FirestoreDocument] = []
-        var pageToken: String?
+        var cursor: FirestoreDocument?
+        var readTime: String?
+        let checkpoint = cloudCheckpoint
         repeat {
-            var url = URLComponents(string: collectionURL)!
-            var items = [URLQueryItem(name: "pageSize", value: "1000")]
-            if let pageToken { items.append(URLQueryItem(name: "pageToken", value: pageToken)) }
-            url.queryItems = items
-            let request = try await firestoreRequest(url: url.url!)
+            var query: [String: Any] = ["from": [["collectionId": "entries"]], "limit": 200]
+            var order: [[String: Any]] = []
+            if let checkpoint {
+                query["where"] = ["fieldFilter": ["field": ["fieldPath": "updatedAt"], "op": "GREATER_THAN_OR_EQUAL", "value": ["timestampValue": checkpoint]]]
+                order.append(["field": ["fieldPath": "updatedAt"], "direction": "ASCENDING"])
+            }
+            order.append(["field": ["fieldPath": "__name__"], "direction": "ASCENDING"])
+            query["orderBy"] = order
+            if let cursor {
+                var values: [[String: Any]] = []
+                if checkpoint != nil, let stamp = cursor.fields?["updatedAt"]?.timestampValue { values.append(["timestampValue": stamp]) }
+                values.append(["referenceValue": cursor.name])
+                query["startAt"] = ["values": values, "before": false]
+            }
+            var body: [String: Any] = ["structuredQuery": query]
+            if let readTime { body["readTime"] = readTime }
+            let parent = String(collectionURL.dropLast("/entries".count))
+            var request = try await firestoreRequest(url: URL(string: parent + ":runQuery")!)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await URLSession.shared.data(for: request)
+            syncRequests += 1
             try check(response, data: data)
-            let page = try JSONDecoder().decode(FirestoreList.self, from: data)
-            all.append(contentsOf: page.documents ?? [])
-            pageToken = page.nextPageToken
-        } while pageToken != nil
-        return all
+            let replies = try JSONDecoder().decode([QueryReply].self, from: data)
+            let page = replies.compactMap(\.document)
+            syncDocuments += page.count
+            if readTime == nil { readTime = replies.compactMap(\.readTime).last }
+            all.append(contentsOf: page)
+            cursor = page.count == 200 ? page.last : nil
+        } while cursor != nil
+        guard let readTime else { throw FirebaseError.server("Cloud response missing checkpoint") }
+        return (all, readTime)
     }
-    private func writeDocument(fingerprint: String, entry: Entry?, deleted: Bool) async throws {
-        let encodedID = fingerprint.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fingerprint
-        var request = try await firestoreRequest(url: URL(string: collectionURL + "/" + encodedID)!)
-        request.httpMethod = "PATCH"
-        let payload = entry.flatMap { try? String(data: JSONEncoder.iso.encode($0), encoding: .utf8) } ?? ""
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["fields": [
-            "payload": ["stringValue": payload],
-            "deleted": ["booleanValue": deleted]
-        ]])
+    private func writePayload(fingerprint: String, payload: String, deleted: Bool) async throws {
+        let parent = collectionURL.components(separatedBy: "/documents/")[0]
+        let name = collectionURL.replacingOccurrences(of: "https://firestore.googleapis.com/v1/", with: "") + "/" + fingerprint
+        var request = try await firestoreRequest(url: URL(string: parent + "/documents:commit")!)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["writes": [[
+            "update": ["name": name, "fields": ["payload": ["stringValue": payload], "deleted": ["booleanValue": deleted]]],
+            "updateTransforms": [["fieldPath": "updatedAt", "setToServerValue": "REQUEST_TIME"]]
+        ]]])
         let (data, response) = try await URLSession.shared.data(for: request)
+        syncRequests += 1
         try check(response, data: data)
-    }
-    private func writeBalanceSnapshot(_ snapshot: BalanceSnapshot) async throws {
-        var request = try await firestoreRequest(url: URL(string: collectionURL + "/__balance_snapshot")!)
-        request.httpMethod = "PATCH"
-        let payload = String(data: try JSONEncoder.iso.encode(snapshot), encoding: .utf8) ?? ""
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["fields": [
-            "payload": ["stringValue": payload],
-            "deleted": ["booleanValue": false]
-        ]])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try check(response, data: data)
-    }
-    private func writeCashAccounts() async throws {
-        var request = try await firestoreRequest(url: URL(string: collectionURL + "/__cash_accounts")!)
-        request.httpMethod = "PATCH"
-        let payload = String(data: try JSONEncoder.iso.encode(cashAccounts), encoding: .utf8) ?? ""
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["fields": [
-            "payload": ["stringValue": payload],
-            "deleted": ["booleanValue": false]
-        ]])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try check(response, data: data)
+        syncWrites += 1
     }
     private var collectionURL: String {
         let uid = Keychain.read("firebaseUID") ?? ""
@@ -690,6 +793,7 @@ private struct AccountLookup: Decodable {
     private func firestoreRequest(url: URL) async throws -> URLRequest {
         let token = try await validIDToken()
         var request = URLRequest(url: url)
+        request.timeoutInterval = 25
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
@@ -726,6 +830,8 @@ private struct AccountLookup: Decodable {
         }
     }
     private func savePending() {
+        UserDefaults.standard.set(Array(pendingRestores), forKey: "cloudPendingRestores")
+        UserDefaults.standard.set(Array(tombstones), forKey: "cloudTombstones")
         UserDefaults.standard.set(Array(pending), forKey: "firebasePending")
         UserDefaults.standard.set(Array(pendingDeletes), forKey: "firebasePendingDeletes")
     }

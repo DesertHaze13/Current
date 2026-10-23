@@ -7,3 +7,6 @@ for check in SyncRetryChecks ContextCategoryChecks CategoryBatchChecks CashBalan
   xcrun swiftc -module-cache-path "$check_dir/cache" Sources/iOS/Domain/Models.swift Sources/iOS/Domain/SpendingCategory.swift "Tests/$check.swift" -o "$check_dir/$check"
   "$check_dir/$check"
 done
+
+xcrun swiftc -module-cache-path "$check_dir/cache" Sources/iOS/Domain/Models.swift Sources/iOS/Domain/SpendingCategory.swift Sources/iOS/Services/CategoryAI.swift Tests/RecoveryChecks.swift -o "$check_dir/RecoveryChecks"
+"$check_dir/RecoveryChecks"

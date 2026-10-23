@@ -391,6 +391,8 @@ struct CurrentActivity: View {
     @Binding var kind: EntryKind?
     @State private var search = ""
     @State private var reviewOnly = false
+    @State private var showRecovery = false
+    @State private var showTrash = false
     @State private var selection: String?
     private var results: [Entry] {
         ledger.monthEntries.filter { (kind == nil || $0.kind == kind) && (!reviewOnly || !$0.isConfirmed) && (search.isEmpty || ($0.title + " " + $0.source + " " + String($0.amount)).localizedCaseInsensitiveContains(search)) }
@@ -402,6 +404,11 @@ struct CurrentActivity: View {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         CurrentPageTitle(eyebrow: "THE DETAILS / ALL IN ONE PLACE", title: "Little moments. Real life.", subtitle: "Find a payment, follow a transfer, or give a record a second look.")
                         CurrentMonthControl()
+                        HStack {
+                            Button { showRecovery = true } label: { Label("Recovery Inbox", systemImage: "tray.and.arrow.down") }
+                            Spacer()
+                            Button { showTrash = true } label: { Label("Recently Deleted", systemImage: "trash") }
+                        }.buttonStyle(.bordered)
                         HStack {
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             TextField("Find merchant, bank, or amount", text: $search)
@@ -427,7 +434,10 @@ struct CurrentActivity: View {
                     CurrentTransactionInspector(entry: ledger.entries.first { $0.fingerprint == selection }).frame(width: 330).padding(22)
                 }
             }
-        }.background(CurrentCanvas()).onChange(of: ledger.selectedMonth) { _, _ in selection = nil }
+        }.background(CurrentCanvas())
+        .sheet(isPresented: $showTrash) { RecentlyDeletedView().environmentObject(ledger) }
+        .sheet(isPresented: $showRecovery) { CaptureRecoveryView().environmentObject(ledger) }
+        .onChange(of: ledger.selectedMonth) { _, _ in selection = nil }
     }
     private func filter(_ name: String, _ value: EntryKind?) -> some View {
         Button { kind = value } label: {
@@ -540,6 +550,9 @@ struct CurrentProfileView: View {
                 Label("One account. Your devices.", systemImage: "person.crop.circle.badge.checkmark").font(.system(.title3, design: .rounded, weight: .bold))
                 Text(ledger.isSignedIn ? "Your financial records belong to your existing Current account. Connecting Google keeps that account and history together." : "Sign in to Current to sync your financial records across your devices.").font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Label(ledger.syncStatus, systemImage: "icloud").font(.subheadline.bold())
+                Text("This launch: \(ledger.syncRequests) cloud requests · \(ledger.syncDocuments) documents downloaded · \(ledger.syncWrites) documents written").font(.caption).foregroundStyle(.secondary)
+                Text("Changes download at most once every 5 minutes while open. Sync now checks immediately. Counters describe this app, not Firebase’s billing report.").font(.caption).foregroundStyle(.secondary)
+                if let issue = ledger.syncIssue { Text(issue).font(.caption).foregroundStyle(.orange) }
                 Button { Task { await ledger.refresh() } } label: { Label("Sync my records", systemImage: "arrow.triangle.2.circlepath").frame(minHeight: 44) }.buttonStyle(.bordered)
             }.frame(maxWidth: .infinity, alignment: .leading).modifier(CurrentSurface())
             VStack(alignment: .leading, spacing: 15) {
@@ -548,5 +561,107 @@ struct CurrentProfileView: View {
                 Button(action: openSettings) { Label("App settings & account access", systemImage: "slider.horizontal.3").frame(minHeight: 44) }.buttonStyle(.bordered)
             }.frame(maxWidth: .infinity, alignment: .leading).modifier(CurrentSurface())
         }
+    }
+}
+
+struct RecentlyDeletedView: View {
+    @EnvironmentObject private var ledger: Ledger
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Deleted records are excluded from spending and balances immediately. Restore within 30 days. After expiry the recovery copy is removed when Current next runs; cloud cleanup waits for sync.").font(.subheadline).foregroundStyle(.secondary)
+                }
+                if ledger.recentlyDeleted.isEmpty { Text("No recoverable records. Records permanently removed by older versions cannot be recovered here.").foregroundStyle(.secondary) }
+                ForEach(ledger.recentlyDeleted.sorted { $0.deletedAt > $1.deletedAt }) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack { Text(item.entry.title).font(.headline); Spacer(); Text(item.entry.amount.rupiah) }
+                        Text("\(item.entry.source) · Deleted \(item.deletedAt.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Text("Expires \(item.expiresAt.formatted(date: .abbreviated, time: .omitted))").font(.caption)
+                            Spacer()
+                            Button("Restore") { Task { await ledger.restore(item) } }.disabled(item.isExpired())
+                        }
+                    }.padding(.vertical, 8)
+                }
+            }.navigationTitle("Recently Deleted")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }.frame(minWidth: 320, idealWidth: 620, minHeight: 420)
+    }
+}
+
+struct CaptureRecoveryView: View {
+    @EnvironmentObject private var ledger: Ledger
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var inbox = CaptureInbox.shared
+    @State private var selected: NotificationCapture?
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Alerts delivered to Current are saved on this device before parsing. Unclear alerts stay here for review. iOS does not let Current rescan other apps’ notifications; recover missing alerts using Paste or Choose screenshot when adding a record.").font(.subheadline).foregroundStyle(.secondary)
+                }
+                if inbox.items.isEmpty { Text("No captures on this device yet.").foregroundStyle(.secondary) }
+                ForEach(inbox.items) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(item.recordedFingerprint == nil ? "Review needed" : "Recorded locally", systemImage: item.recordedFingerprint == nil ? "exclamationmark.bubble" : "checkmark.circle").foregroundStyle(item.recordedFingerprint == nil ? Color.orange : Color.teal)
+                        Text(item.text).font(.subheadline).lineLimit(5).textSelection(.enabled)
+                        Text(item.receivedAt.formatted()).font(.caption).foregroundStyle(.secondary)
+                        if let message = item.message { Text(message).font(.caption).foregroundStyle(.secondary) }
+                        if item.recordedFingerprint == nil { Button("Review & record") { selected = item } }
+                    }.padding(.vertical, 8)
+                }
+            }.navigationTitle("Recovery Inbox")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }.sheet(item: $selected) { item in CaptureReviewView(item: item).environmentObject(ledger) }
+            .frame(minWidth: 320, idealWidth: 620, minHeight: 420)
+    }
+}
+
+struct CaptureReviewView: View {
+    let item: NotificationCapture
+    @EnvironmentObject private var ledger: Ledger
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var amount = ""
+    @State private var source = ""
+    @State private var kind = EntryKind.expense
+    @State private var date = Date()
+    @State private var message: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                Text(item.text).textSelection(.enabled)
+                Text("Only confirm a completed transaction. Holds, promotions and failed payments should remain outside your totals.").font(.caption).foregroundStyle(.secondary)
+                TextField("Description", text: $title)
+                TextField("Amount in whole rupiah", text: $amount)
+                TextField("Source app or account", text: $source)
+                Picker("Movement", selection: $kind) { ForEach(EntryKind.allCases, id: \.self) { Text($0.title).tag($0) } }
+                DatePicker("Transaction date", selection: $date)
+                if let message { Text(message).foregroundStyle(.orange) }
+            }.navigationTitle("Review capture")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Record") {
+                            guard let value = Int(amount), value > 0 else { message = "Enter a positive whole rupiah amount."; return }
+                            Task {
+                                let fingerprint = "reviewed-capture-" + item.id
+                                let entry = Entry(source: source, title: title, amount: value, kind: kind, date: date, fingerprint: fingerprint)
+                                if !ledger.entries.contains(where: { $0.fingerprint == fingerprint }) { await ledger.add(entry) }
+                                guard ledger.entries.contains(where: { $0.fingerprint == fingerprint }) else { message = "Could not save this record."; return }
+                                do { try CaptureInbox.shared.finish(item, fingerprint: fingerprint, message: "Reviewed and saved by you."); dismiss() }
+                                catch { message = error.localizedDescription }
+                            }
+                        }.disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || source.isEmpty)
+                    }
+                }
+        }.onAppear {
+            date = item.receivedAt; source = item.source ?? "Other"
+            if let parsed = AlertParser.parse(item.text, source: item.source, at: item.receivedAt) {
+                title = parsed.title; amount = String(parsed.amount); kind = parsed.kind; source = parsed.source; date = parsed.date
+            }
+        }.frame(minWidth: 320, idealWidth: 600, minHeight: 460)
     }
 }
