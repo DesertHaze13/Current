@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 private let ink = Color(red: 0.035, green: 0.075, blue: 0.105)
 private let glow = Color(red: 0.55, green: 1, blue: 0.82)
@@ -24,7 +25,9 @@ struct RootView: View {
     private var accent: Color { isDark ? glow : Color(red: 0.02, green: 0.42, blue: 0.36) }
     var body: some View {
         GeometryReader { geometry in
-            if geometry.size.width >= 760 {
+            if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad {
+                iPadTabs
+            } else if geometry.size.width >= 760 {
                 NavigationSplitView {
                     List {
                         Section {
@@ -74,6 +77,61 @@ struct RootView: View {
             if scenePhase == .active && ledger.isSignedIn { Task { await ledger.refresh() } }
         }
     }
+    @available(iOS 18.0, *)
+    private var iPadTabs: some View {
+        TabView(selection: $page) {
+            Tab("Home", systemImage: CurrentPage.home.symbol, value: CurrentPage.home) {
+                iPadDestination(.home)
+            }
+            Tab("Spending", systemImage: CurrentPage.spending.symbol, value: CurrentPage.spending) {
+                iPadDestination(.spending)
+            }
+            Tab("Activity", systemImage: CurrentPage.activity.symbol, value: CurrentPage.activity) {
+                iPadDestination(.activity)
+            }
+            Tab("Profile", systemImage: CurrentPage.profile.symbol, value: CurrentPage.profile) {
+                iPadDestination(.profile)
+            }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .tabViewSidebarHeader {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("CURRENT").font(.system(.title3, design: .rounded, weight: .black)).tracking(3)
+                    .foregroundStyle(navigationAccent)
+                Text("Your money, in motion.").font(.caption).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
+        }
+        .tabViewSidebarFooter {
+            Text(ledger.syncStatus).font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+        }
+        .tint(navigationAccent)
+    }
+
+    private func iPadDestination(_ destination: CurrentPage) -> some View {
+        NavigationStack {
+            content(for: destination)
+                .navigationTitle(destination.rawValue)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("App settings", systemImage: "slider.horizontal.3") { showSettings = true }
+                            Button("Icon playground", systemImage: "sparkles") { showIcon = true }
+                        } label: { Image(systemName: "ellipsis") }
+                        .accessibilityLabel("More options")
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showAdd = true } label: { Image(systemName: "plus") }
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(.circle)
+                            .tint(navigationAccent)
+                            .accessibilityLabel("Add a money moment")
+                    }
+                }
+        }
+    }
+
     @ViewBuilder private func nativeTabs(availableWidth: CGFloat) -> some View {
         if #available(iOS 26.0, *) {
             NavigationStack { pageContent }
