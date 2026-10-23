@@ -913,9 +913,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>32</string>
+				<string>33</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.22</string>
+				<string>1.23</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -953,9 +953,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>32</string>
+				<string>33</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.22</string>
+				<string>1.23</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1007,9 +1007,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>32</string>
+				<string>33</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.22</string>
+				<string>1.23</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1045,9 +1045,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>32</string>
+				<string>33</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.22</string>
+				<string>1.23</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1097,9 +1097,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>32</string>
+				<string>33</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.22</string>
+				<string>1.23</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1133,9 +1133,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>32</string>
+				<string>33</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.22</string>
+				<string>1.23</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>

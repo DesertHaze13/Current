@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 enum CurrentPage: String, CaseIterable, Identifiable {
     case home = "Home", spending = "Spending", activity = "Activity", profile = "Profile"
@@ -103,11 +106,32 @@ struct CurrentOverview: View {
     @State private var story = 0
     private var insight: MonthlyInsight { ledger.monthlyInsight }
     private var top: SpendingSlice? { SpendingBreakdown(entries: ledger.monthEntries).slices.first }
+    private var isTablet: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        false
+        #endif
+    }
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    if geometry.size.width >= 780 {
+                    if isTablet {
+                        // Keep widget identity and column count stable when the native
+                        // sidebar changes the content width. AnyLayout preserves state.
+                        let wide = geometry.size.width >= 620
+                        let header = wide ? AnyLayout(HStackLayout(alignment: .center, spacing: 24)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 20))
+                        header {
+                            welcome
+                            CurrentMonthControl().frame(width: wide ? 290 : nil)
+                        }
+                        let dashboard = wide ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 22))
+                        dashboard {
+                            VStack(spacing: 22) { wallet; discovery }.frame(maxWidth: .infinity)
+                            VStack(spacing: 22) { monthStory; latest }.frame(maxWidth: .infinity)
+                        }
+                    } else if geometry.size.width >= 780 {
                         HStack(alignment: .center, spacing: 24) {
                             welcome
                             CurrentMonthControl().frame(width: 290)
@@ -135,7 +159,7 @@ struct CurrentOverview: View {
                     Button { Task { await ledger.refresh() } } label: {
                         Label(ledger.syncStatus, systemImage: ledger.syncStatus == "Firebase synced" ? "checkmark.icloud" : "arrow.triangle.2.circlepath").font(.caption).frame(maxWidth: .infinity).padding(8)
                     }.buttonStyle(.plain).foregroundStyle(.secondary).accessibilityHint("Refresh your records")
-                }.padding(geometry.size.width >= 780 ? 28 : 22).frame(maxWidth: 1600).frame(maxWidth: .infinity)
+                }.padding(isTablet ? 28 : geometry.size.width >= 780 ? 28 : 22).frame(maxWidth: 1600).frame(maxWidth: .infinity)
             }
         }.background(CurrentCanvas()).buttonStyle(CurrentPress())
     }
