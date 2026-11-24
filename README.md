@@ -40,7 +40,7 @@ Use Xcode with the iOS 17+, watchOS 10+ and macOS 14+ SDKs supported by the proj
 3. For device deployment, choose your development team in Signing & Capabilities. Use your own bundle identifiers if needed, updating Firebase registrations and the Watch companion identifier to match.
 4. Build and run. A new public build starts with **no personal transactions** and zero-valued, unconfirmed bank/wallet presets. Tap each account to set its own balance.
 
-The build script generates an empty local Firebase configuration from the example when no real file exists. This supports an offline ledger without connecting to the publisher's Firebase project. Real configuration files are ignored by Git.
+The iOS Firebase client configuration for `com.dony.currentledger` is included in the repository and bundled in the app. Native Mac configuration remains local and Git-ignored. For a target without a real configuration, the build script generates an empty local configuration from the example to support an offline ledger.
 
 ### Enable your own Firebase project
 
@@ -56,7 +56,7 @@ Purchases, income, transfers between your accounts and payments of existing debt
 
 Balances preserve **last-confirmed snapshots** and show estimates separately. Estimates apply assigned, confirmed movements strictly after each account’s snapshot. Transfers require both account legs; unknown funding remains visible for review. These estimates are not live bank balances. Health labels describe recorded cash flow and are not a personalized financial assessment.
 
-This public repository contains no imported personal ledger, private bank screenshots, Firebase production configuration or signing credentials. UI screenshots, if included, use fictional demo data. The source does not connect to bank APIs or import a mailbox directly.
+This public repository contains no imported personal ledger, private bank screenshots, Firebase server credentials or signing credentials. UI screenshots, if included, use fictional demo data. The source does not connect to bank APIs or import a mailbox directly.
 
 ## Documentation
 

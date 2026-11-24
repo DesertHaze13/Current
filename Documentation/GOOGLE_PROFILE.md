@@ -1,6 +1,6 @@
 # Google Profile
 
-Current uses the official Google Sign-In SDK and Firebase Authentication. Add your own target-specific GoogleService-Info.plist to each platform's Resources folder. These files are Git-ignored; only empty examples are committed.
+Current uses the official Google Sign-In SDK and Firebase Authentication. The iOS configuration for `com.dony.currentledger` is included at `Resources/iOS/GoogleService-Info.plist` so a fresh checkout can build with Google Sign-In configured. Firebase client configuration contains non-secret project identifiers; access to ledger data is controlled by Firebase Authentication and Firestore rules. Native Mac requires its own target-specific configuration at `Resources/macOS/GoogleService-Info.plist`, which remains Git-ignored.
 
 The build phase generates the reversed client-ID callback scheme automatically. An absent client ID or a configuration belonging to another bundle ID leaves the connection in a visible setup state instead of invoking an invalid SDK configuration.
 

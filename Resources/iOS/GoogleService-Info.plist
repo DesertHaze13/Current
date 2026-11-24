@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>80053680498-ir9769hugt2snkf5nk7h3ranej5h5m18.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.80053680498-ir9769hugt2snkf5nk7h3ranej5h5m18</string>
+	<key>API_KEY</key>
+	<string>AIzaSyAkQyTsJjy8UgWxVF8MFFRx8o5cENRgltM</string>
+	<key>GCM_SENDER_ID</key>
+	<string>80053680498</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.dony.currentledger</string>
+	<key>PROJECT_ID</key>
+	<string>dony-bank-app</string>
+	<key>STORAGE_BUCKET</key>
+	<string>dony-bank-app.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:80053680498:ios:6da8a9bba18205b000c5eb</string>
+</dict>
+</plist>

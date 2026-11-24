@@ -6,6 +6,7 @@ build/
 xcuserdata/
 **/xcuserdata/
 Resources/**/GoogleService-Info.plist
+!Resources/iOS/GoogleService-Info.plist
 .env
 .env.*
 *.p12
