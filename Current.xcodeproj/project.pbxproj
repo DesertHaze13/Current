@@ -913,9 +913,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>36</string>
+				<string>40</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.26</string>
+				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -940,6 +940,8 @@
 				<string>com.dony.currentledger</string>
 				<key>INFOPLIST_FILE</key>
 				<string>$(DERIVED_FILE_DIR)/CurrentGoogleInfo.plist</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>7388ZR99UP</string>
 			</dict>
 		</dict>
 		<key>A0000000000000000000004E</key>
@@ -953,9 +955,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>36</string>
+				<string>40</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.26</string>
+				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -980,6 +982,8 @@
 				<string>com.dony.currentledger</string>
 				<key>INFOPLIST_FILE</key>
 				<string>$(DERIVED_FILE_DIR)/CurrentGoogleInfo.plist</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>7388ZR99UP</string>
 			</dict>
 		</dict>
 		<key>A0000000000000000000004F</key>
@@ -1007,9 +1011,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>36</string>
+				<string>40</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.26</string>
+				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1032,6 +1036,8 @@
 				<string>4</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>com.dony.currentledger.watchkitapp</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>7388ZR99UP</string>
 			</dict>
 		</dict>
 		<key>A00000000000000000000051</key>
@@ -1045,9 +1051,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>36</string>
+				<string>40</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.26</string>
+				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1070,6 +1076,8 @@
 				<string>4</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>com.dony.currentledger.watchkitapp</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>7388ZR99UP</string>
 			</dict>
 		</dict>
 		<key>A00000000000000000000052</key>
@@ -1097,9 +1105,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>36</string>
+				<string>40</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.26</string>
+				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1120,6 +1128,8 @@
 				<string>com.dony.currentledger.mac</string>
 				<key>INFOPLIST_FILE</key>
 				<string>$(DERIVED_FILE_DIR)/CurrentGoogleInfo.plist</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>7388ZR99UP</string>
 			</dict>
 		</dict>
 		<key>A00000000000000000000054</key>
@@ -1133,9 +1143,9 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>36</string>
+				<string>40</string>
 				<key>MARKETING_VERSION</key>
-				<string>1.26</string>
+				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
 				<key>PRODUCT_NAME</key>
@@ -1156,6 +1166,8 @@
 				<string>com.dony.currentledger.mac</string>
 				<key>INFOPLIST_FILE</key>
 				<string>$(DERIVED_FILE_DIR)/CurrentGoogleInfo.plist</string>
+				<key>DEVELOPMENT_TEAM</key>
+				<string>7388ZR99UP</string>
 			</dict>
 		</dict>
 		<key>A00000000000000000000055</key>

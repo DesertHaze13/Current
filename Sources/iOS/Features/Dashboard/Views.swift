@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 import Combine
 import UIKit
 
@@ -9,6 +10,8 @@ struct RootView: View {
     @EnvironmentObject var ledger: Ledger
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceDockMotion
+    @State private var dockScroll = CurrentDockScrollState()
     @State private var showAdd = false
     @State private var page: CurrentPage = .home
     @State private var showSettings = false
@@ -134,9 +137,23 @@ struct RootView: View {
     @ViewBuilder private func nativeTabs(availableWidth: CGFloat) -> some View {
         if #available(iOS 26.0, *) {
             NavigationStack { pageContent }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    // Clamp elastic overscroll so bouncing at either edge cannot toggle the dock.
+                    let extent = max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height)
+                    return min(extent, max(0, geometry.contentOffset.y + geometry.contentInsets.top))
+                } action: { oldOffset, newOffset in
+                    dockScroll.follow(oldOffset: oldOffset, newOffset: newOffset)
+                }
+                .onScrollPhaseChange { _, phase in
+                    dockScroll.isFollowing = phase == .interacting || phase == .decelerating
+                    if phase == .idle { dockScroll.settle(reduceMotion: reduceDockMotion) }
+                }
+                .onChange(of: page) { _, _ in
+                    dockScroll.expand(reduceMotion: reduceDockMotion)
+                }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     HStack(spacing: 12) {
-                        CurrentGlassPageBar(selection: $page, tint: navigationAccent)
+                        CurrentGlassPageBar(selection: $page, motion: dockScroll, tint: navigationAccent)
                             .frame(width: max(180, availableWidth - 100), height: 64)
                         Button { showAdd = true } label: {
                             Image(systemName: "plus")
@@ -192,6 +209,8 @@ struct RootView: View {
 @available(iOS 26.0, *)
 private struct CurrentGlassPageBar: View {
     @Binding var selection: CurrentPage
+    let motion: CurrentDockScrollState
+    private var collapsed: Bool { motion.progress > 0.001 }
     let tint: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
@@ -200,54 +219,125 @@ private struct CurrentGlassPageBar: View {
     var body: some View {
         GeometryReader { geometry in
             let itemWidth = max(1, (geometry.size.width - inset * 2) / CGFloat(CurrentPage.allCases.count))
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(scheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.075))
-                    .frame(width: itemWidth, height: 56)
-                    .offset(x: inset + CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0) * itemWidth)
-                    .animation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.82), value: selection)
-                    .allowsHitTesting(false)
-                HStack(spacing: 0) {
-                    ForEach(CurrentPage.allCases) { destination in
-                        Button { select(destination) } label: {
-                            VStack(spacing: 3) {
-                                Image(systemName: destination.symbol)
-                                    .font(.system(size: 24, weight: .medium))
-                                    .frame(height: 27)
-                                Text(destination.rawValue)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .lineLimit(1).minimumScaleFactor(0.85)
-                            }
-                            .foregroundStyle(selection == destination ? tint : Color.primary)
-                            .frame(width: itemWidth, height: 56)
-                            .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(destination.rawValue)
-                        .accessibilityAddTraits(selection == destination ? .isSelected : [])
-                    }
-                }.padding(.horizontal, inset)
-            }
-            .frame(width: geometry.size.width, height: 64)
-            .contentShape(Capsule())
-            .glassEffect(.regular.interactive(), in: .capsule)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 8)
-                    .onChanged { value in
-                        // Keep the hold-and-slide selection inside this capsule.
-                        guard value.location.y >= -12, value.location.y <= 76 else { return }
-                        let index = min(CurrentPage.allCases.count - 1, max(0, Int((value.location.x - inset) / itemWidth)))
-                        select(CurrentPage.allCases[index])
-                    }
-            )
-            .sensoryFeedback(.selection, trigger: selection)
+            let selectedIndex = CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0)
+            // Keep one row alive through the entire transition. A single animated
+            // progress value drives the row, clipping edge, and glass bounds together.
+            expandedPages(itemWidth: itemWidth)
+                .modifier(CurrentDockRetraction(
+                    progress: motion.progress,
+                    fullWidth: geometry.size.width,
+                    itemWidth: itemWidth,
+                    selectedIndex: selectedIndex
+                ))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .sensoryFeedback(.selection, trigger: selection)
         }
         .frame(height: 64)
         .accessibilityElement(children: .contain)
     }
+    private func expandedPages(itemWidth: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(scheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.075))
+                .frame(width: itemWidth, height: 56)
+                .offset(x: inset + CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0) * itemWidth)
+                .animation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.82), value: selection)
+                .allowsHitTesting(false)
+            HStack(spacing: 0) {
+                ForEach(CurrentPage.allCases) { destination in
+                    Button { select(destination) } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: destination.symbol)
+                                .font(.system(size: 24, weight: .medium))
+                                .frame(height: 27)
+                            Text(destination.rawValue)
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1).minimumScaleFactor(0.85)
+                        }
+                        .foregroundStyle(selection == destination ? tint : Color.primary)
+                        .frame(width: itemWidth, height: 56)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(collapsed ? "\(destination.rawValue), expand navigation" : destination.rawValue)
+                    .accessibilityHidden(collapsed && selection != destination)
+                    .accessibilityAddTraits(selection == destination ? .isSelected : [])
+                }
+            }.padding(.horizontal, inset)
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { value in
+                    guard !collapsed, value.location.y >= -12, value.location.y <= 76 else { return }
+                    let index = min(CurrentPage.allCases.count - 1, max(0, Int((value.location.x - inset) / itemWidth)))
+                    select(CurrentPage.allCases[index])
+                }
+        )
+    }
+
     private func select(_ destination: CurrentPage) {
+        if collapsed {
+            motion.expand(reduceMotion: reduceMotion)
+            return
+        }
         guard selection != destination else { return }
         selection = destination
+    }
+}
+
+/// Only the dock reads progress. Scroll sampling does not invalidate RootView
+/// or the ledger; drag distance maps directly to geometry without a trailing tween.
+@Observable
+private final class CurrentDockScrollState {
+    var progress: CGFloat = 0
+    @ObservationIgnored var isFollowing = false
+    private let travelToCollapse: CGFloat = 120
+
+    func follow(oldOffset: CGFloat, newOffset: CGFloat) {
+        guard isFollowing else { return }
+        let next = newOffset < 12 ? 0 : min(1, max(0, progress + (newOffset - oldOffset) / travelToCollapse))
+        guard next != progress else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { progress = next }
+    }
+
+    func settle(reduceMotion: Bool) {
+        let target: CGFloat = progress >= 0.5 ? 1 : 0
+        guard target != progress else { return }
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.24, extraBounce: 0)) {
+            progress = target
+        }
+    }
+
+    func expand(reduceMotion: Bool) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.28, extraBounce: 0)) {
+            progress = 0
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+private struct CurrentDockRetraction: AnimatableModifier {
+    var progress: CGFloat
+    let fullWidth: CGFloat
+    let itemWidth: CGFloat
+    let selectedIndex: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let width = fullWidth + (itemWidth + 8 - fullWidth) * progress
+        content
+            .frame(width: fullWidth, height: 64, alignment: .leading)
+            .offset(x: -selectedIndex * itemWidth * progress)
+            .frame(width: width, height: 64, alignment: .leading)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+            .glassEffect(.regular.interactive(), in: .capsule)
     }
 }
 
