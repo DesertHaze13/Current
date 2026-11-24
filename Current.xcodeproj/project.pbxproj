@@ -913,7 +913,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>40</string>
+				<string>41</string>
 				<key>MARKETING_VERSION</key>
 				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
@@ -955,7 +955,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>40</string>
+				<string>41</string>
 				<key>MARKETING_VERSION</key>
 				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
@@ -1011,7 +1011,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>40</string>
+				<string>41</string>
 				<key>MARKETING_VERSION</key>
 				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
@@ -1051,7 +1051,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>40</string>
+				<string>41</string>
 				<key>MARKETING_VERSION</key>
 				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
@@ -1105,7 +1105,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>40</string>
+				<string>41</string>
 				<key>MARKETING_VERSION</key>
 				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
@@ -1143,7 +1143,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>40</string>
+				<string>41</string>
 				<key>MARKETING_VERSION</key>
 				<string>1.27</string>
 				<key>GENERATE_INFOPLIST_FILE</key>

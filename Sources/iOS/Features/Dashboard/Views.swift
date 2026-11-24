@@ -219,15 +219,13 @@ private struct CurrentGlassPageBar: View {
     var body: some View {
         GeometryReader { geometry in
             let itemWidth = max(1, (geometry.size.width - inset * 2) / CGFloat(CurrentPage.allCases.count))
-            let selectedIndex = CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0)
             // Keep one row alive through the entire transition. A single animated
             // progress value drives the row, clipping edge, and glass bounds together.
             expandedPages(itemWidth: itemWidth)
                 .modifier(CurrentDockRetraction(
                     progress: motion.progress,
                     fullWidth: geometry.size.width,
-                    itemWidth: itemWidth,
-                    selectedIndex: selectedIndex
+                    itemWidth: itemWidth
                 ))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .sensoryFeedback(.selection, trigger: selection)
@@ -239,8 +237,11 @@ private struct CurrentGlassPageBar: View {
         ZStack(alignment: .leading) {
             Capsule()
                 .fill(scheme == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.075))
-                .frame(width: itemWidth, height: 56)
-                .offset(x: inset + CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0) * itemWidth)
+                .modifier(CurrentDockSelectionFlight(
+                    progress: motion.progress,
+                    itemWidth: itemWidth,
+                    selectedIndex: CGFloat(CurrentPage.allCases.firstIndex(of: selection) ?? 0)
+                ))
                 .animation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.82), value: selection)
                 .allowsHitTesting(false)
             HStack(spacing: 0) {
@@ -259,6 +260,14 @@ private struct CurrentGlassPageBar: View {
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .modifier(CurrentDockItemFlight(
+                        progress: motion.progress,
+                        itemWidth: itemWidth,
+                        index: CGFloat(CurrentPage.allCases.firstIndex(of: destination) ?? 0),
+                        isSelected: selection == destination,
+                        reduceMotion: reduceMotion
+                    ))
+                    .zIndex(selection == destination ? 1 : 0)
                     .accessibilityLabel(collapsed ? "\(destination.rawValue), expand navigation" : destination.rawValue)
                     .accessibilityHidden(collapsed && selection != destination)
                     .accessibilityAddTraits(selection == destination ? .isSelected : [])
@@ -322,6 +331,70 @@ private struct CurrentDockRetraction: AnimatableModifier {
     var progress: CGFloat
     let fullWidth: CGFloat
     let itemWidth: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let width = fullWidth + (64 - fullWidth) * CurrentDockFlightGeometry.shellProgress(progress)
+        content
+            .frame(width: fullWidth, height: 64, alignment: .leading)
+            .frame(width: width, height: 64, alignment: .leading)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+            .glassEffect(.regular.interactive(), in: .capsule)
+    }
+}
+
+/// All paths are functions of scroll progress, so changing direction reverses
+/// the same flight immediately. No timers, opacity changes, or replacement icons.
+private enum CurrentDockFlightGeometry {
+    static func shellProgress(_ progress: CGFloat) -> CGFloat {
+        // Let the rightmost items get moving before the glass edge catches them.
+        let t = min(1, max(0, (progress - 0.14) / 0.86))
+        return t * t * (3 - 2 * t)
+    }
+
+    static func offset(progress: CGFloat, itemWidth: CGFloat, index: CGFloat,
+                       isSelected: Bool, reduceMotion: Bool) -> CGFloat {
+        if isSelected {
+            let target = (56 - itemWidth) / 2 - index * itemWidth
+            return target * shellProgress(progress)
+        }
+        let delay = reduceMotion ? 0 : index * 0.025
+        let t = min(1, max(0, (progress - delay) / (0.82 - delay)))
+        let flight = t * t * (3 - 2 * t)
+        // Every inactive item actually exits through the LEFT edge of the dock.
+        return -(itemWidth * (index + 1) + 12) * flight
+    }
+}
+
+@available(iOS 26.0, *)
+private struct CurrentDockItemFlight: AnimatableModifier {
+    var progress: CGFloat
+    let itemWidth: CGFloat
+    let index: CGFloat
+    let isSelected: Bool
+    let reduceMotion: Bool
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.offset(x: CurrentDockFlightGeometry.offset(
+            progress: progress, itemWidth: itemWidth, index: index,
+            isSelected: isSelected, reduceMotion: reduceMotion
+        ))
+    }
+}
+
+@available(iOS 26.0, *)
+private struct CurrentDockSelectionFlight: AnimatableModifier {
+    var progress: CGFloat
+    let itemWidth: CGFloat
     let selectedIndex: CGFloat
 
     var animatableData: CGFloat {
@@ -330,14 +403,10 @@ private struct CurrentDockRetraction: AnimatableModifier {
     }
 
     func body(content: Content) -> some View {
-        let width = fullWidth + (itemWidth + 8 - fullWidth) * progress
+        let phase = CurrentDockFlightGeometry.shellProgress(progress)
         content
-            .frame(width: fullWidth, height: 64, alignment: .leading)
-            .offset(x: -selectedIndex * itemWidth * progress)
-            .frame(width: width, height: 64, alignment: .leading)
-            .clipShape(Capsule())
-            .contentShape(Capsule())
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .frame(width: itemWidth + (56 - itemWidth) * phase, height: 56)
+            .offset(x: 4 + selectedIndex * itemWidth * (1 - phase))
     }
 }
 
